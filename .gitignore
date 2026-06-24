@@ -1,0 +1,92 @@
+# ====================
+# Секреты и окружение
+# ====================
+.env
+.env.local
+.env.*.local
+!.env.example
+!**/.env.example
+backend/.env
+backend/.env.production
+*.env
+!*.env.example
+
+# ====================
+# Python (backend)
+# ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+.venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ====================
+# Node.js (frontend-app, widget)
+# ====================
+node_modules/
+dist/
+.svelte-kit/
+build/
+.npm/
+.npmrc
+
+# ====================
+# Базы данных
+# ====================
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+
+# ====================
+# Логи
+# ====================
+*.log
+logs/
+
+# ====================
+# IDE и редакторы
+# ====================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ====================
+# Docker
+# ====================
+.docker/
+docker-compose.override.yml
+
+# ====================
+# Временные файлы
+# ====================
+tmp/
+temp/
+*.tmp
+*.bak

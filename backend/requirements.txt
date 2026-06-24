@@ -1,0 +1,50 @@
+# FastAPI и веб-сервер
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# База данных
+sqlalchemy>=2.0.25
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.10
+alembic>=1.13.1
+
+# pgvector для векторного поиска
+pgvector>=0.2.4
+
+# Celery и Redis для асинхронных задач
+celery>=5.3.6
+redis>=5.0.1
+flower>=2.0.1
+
+# Парсинг
+playwright>=1.41.0
+
+# AI интеграции
+httpx>=0.26.0
+openai>=1.10.0
+
+# Утилиты
+pydantic>=2.5.3
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt==4.0.1  # Совместимая версия с passlib
+email-validator>=2.1.0
+cryptography>=41.0.0  # Шифрование API ключей
+
+# Работа с Excel
+openpyxl>=3.1.2
+
+# Генерация PDF
+weasyprint>=60.1
+
+# Логирование
+loguru>=0.7.2
+
+# Тестирование
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+aiosqlite>=0.20.0

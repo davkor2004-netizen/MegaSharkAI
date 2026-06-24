@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/png" href="%sveltekit.assets%/favicon-Photoroom.png" />
+    <link rel="apple-touch-icon" href="%sveltekit.assets%/favicon-Photoroom.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MegaSharkAI - AI-ассистент для маркетплейсов</title>
+    
+    <!-- Критично: применяем тему ДО загрузки Svelte -->
+    <script>
+      (function() {
+        try {
+          var theme = localStorage.getItem('theme') || 'dark';
+          if (theme === 'light') {
+            document.documentElement.classList.add('light');
+          } else {
+            document.documentElement.classList.remove('light');
+          }
+        } catch(e) {}
+      })();
+    </script>
+    
+    %sveltekit.head%
+  </head>
+  <body style="min-height: 100vh">
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
+</html>

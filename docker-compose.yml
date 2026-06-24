@@ -1,0 +1,175 @@
+# ===========================================
+# Docker Compose для MegaSharkAI
+# ===========================================
+# Запуск: docker compose up -d
+# Остановка: docker compose down
+# Просмотр логов: docker compose logs -f
+# ===========================================
+
+services:
+  # ====================
+  # База данных PostgreSQL с pgvector
+  # ====================
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: megashark_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-megashark}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-megashark_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-megashark_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Только localhost — не открывать БД в LAN
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-megashark}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - megashark_network
+
+  # ====================
+  # Redis (брокер для Celery)
+  # ====================
+  redis:
+    image: redis:7-alpine
+    container_name: megashark_redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-megashark_redis_dev}
+    command: >
+      sh -c "redis-server --appendonly yes --requirepass $$REDIS_PASSWORD"
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - megashark_network
+
+  # ====================
+  # Бэкенд FastAPI
+  # ====================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: megashark_backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      POSTGRES_HOST: db
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-megashark_redis_dev}
+      DEBUG: ${DEBUG:-true}
+    volumes:
+      - ./backend:/app
+      - /app/__pycache__
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - megashark_network
+
+  # ====================
+  # Celery Worker (фоновые задачи, dev)
+  # ====================
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: megashark_celery_worker
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      POSTGRES_HOST: db
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-megashark_redis_dev}
+      DEBUG: ${DEBUG:-true}
+    volumes:
+      - ./backend:/app
+      - /app/__pycache__
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
+    networks:
+      - megashark_network
+
+  # ====================
+  # Celery Beat (планировщик, dev)
+  # ====================
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: megashark_celery_beat
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      POSTGRES_HOST: db
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-megashark_redis_dev}
+      DEBUG: ${DEBUG:-true}
+    volumes:
+      - ./backend:/app
+      - /app/__pycache__
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app beat --loglevel=info
+    networks:
+      - megashark_network
+
+  # ====================
+  # Фронтенд SvelteKit
+  # ====================
+  frontend:
+    build:
+      context: ./frontend-app
+      dockerfile: Dockerfile
+    container_name: megashark_frontend
+    restart: unless-stopped
+    volumes:
+      - ./frontend-app:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    networks:
+      - megashark_network
+
+# ====================
+# Сети и тома
+# ====================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  megashark_network:
+    driver: bridge

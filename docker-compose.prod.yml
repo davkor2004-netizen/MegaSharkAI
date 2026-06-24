@@ -1,0 +1,263 @@
+# ===========================================
+# Docker Compose для продакшена MegaSharkAI
+# ===========================================
+# Запуск: docker compose -f docker-compose.prod.yml up -d
+# Остановка: docker compose -f docker-compose.prod.yml down
+# ===========================================
+
+services:
+  # ====================
+  # База данных PostgreSQL с pgvector
+  # ====================
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: megashark_prod_db
+    restart: always
+    env_file:
+      - ./backend/.env.production
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-megashark}
+      POSTGRES_DB: ${POSTGRES_DB:-megashark_db}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-megashark}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - megashark_prod_network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ====================
+  # Redis (брокер для Celery + кэш)
+  # ====================
+  redis:
+    image: redis:7-alpine
+    container_name: megashark_prod_redis
+    restart: always
+    env_file:
+      - ./backend/.env.production
+    command: >
+      sh -c 'redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"'
+    volumes:
+      - redis_prod_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - megashark_prod_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ====================
+  # Бэкенд FastAPI
+  # ====================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: megashark_prod_backend
+    restart: always
+    env_file:
+      - ./backend/.env.production
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ENVIRONMENT: production
+      DEBUG: "false"
+      LOG_LEVEL: INFO
+    volumes:
+      - ./backend/logs:/app/logs
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+    networks:
+      - megashark_prod_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ====================
+  # Celery Worker (асинхронные задачи)
+  # ====================
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: megashark_prod_celery
+    restart: always
+    env_file:
+      - ./backend/.env.production
+    environment:
+      POSTGRES_HOST: db
+      REDIS_HOST: redis
+      ENVIRONMENT: production
+      DEBUG: "false"
+    volumes:
+      - ./backend/logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4
+    networks:
+      - megashark_prod_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ====================
+  # Celery Beat (планировщик задач)
+  # ====================
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: megashark_prod_beat
+    restart: always
+    env_file:
+      - ./backend/.env.production
+    environment:
+      POSTGRES_HOST: db
+      REDIS_HOST: redis
+      ENVIRONMENT: production
+      DEBUG: "false"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app beat --loglevel=info
+    networks:
+      - megashark_prod_network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ====================
+  # Frontend SvelteKit (production preview для MVP demo)
+  # ====================
+  frontend:
+    build:
+      context: ./frontend-app
+      dockerfile: Dockerfile
+    container_name: megashark_prod_frontend
+    restart: always
+    environment:
+      NODE_ENV: production
+    expose:
+      - "3000"
+    command: >
+      sh -c "npm run build &&
+             npm run preview -- --host 0.0.0.0 --port 3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - megashark_prod_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ====================
+  # Nginx (reverse proxy + статика)
+  # ====================
+  nginx:
+    image: nginx:alpine
+    container_name: megashark_prod_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - megashark_prod_network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ====================
+  # Flower (мониторинг Celery) - опционально
+  # ====================
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: megashark_prod_flower
+    restart: always
+    env_file:
+      - ./backend/.env.production
+    environment:
+      REDIS_HOST: redis
+    profiles:
+      - monitoring
+    ports:
+      - "127.0.0.1:5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "celery -A app.celery_app flower --port=5555
+             --basic_auth=$${FLOWER_USER:?FLOWER_USER is required}:$${FLOWER_PASSWORD:?FLOWER_PASSWORD is required}"
+    networks:
+      - megashark_prod_network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+# ====================
+# Сети и тома
+# ====================
+volumes:
+  postgres_prod_data:
+    driver: local
+  redis_prod_data:
+    driver: local
+
+networks:
+  megashark_prod_network:
+    driver: bridge

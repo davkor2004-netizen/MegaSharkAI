@@ -12,20 +12,81 @@
 """
 
 import asyncio
+import os
 import random
 import re
+import tempfile
+from pathlib import Path
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import httpx
 from loguru import logger
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeout, BrowserContext
+from app.config import settings
 from app.services.url_security import marketplace_from_hostname, validate_marketplace_product_url, UrlSecurityError
 
 
 class ParserError(Exception):
     """Ошибка парсинга."""
     pass
+
+
+def _parser_debug_dumps_enabled() -> bool:
+    """
+    Разрешено ли сохранять debug-дампы парсера (screenshot/HTML).
+
+    Двойной guard для безопасности production:
+    1. Только в dev-режиме (``settings.debug=True``).
+    2. Только при явном opt-in через env ``PARSER_DEBUG_DUMPS`` (по умолчанию выключено).
+
+    В production (``DEBUG=false``) файлы не создаются никогда.
+    """
+    if not settings.debug:
+        return False
+    flag = os.getenv("PARSER_DEBUG_DUMPS", "false").strip().lower()
+    return flag in {"1", "true", "yes", "on"}
+
+
+def _parser_debug_dir() -> Path:
+    """
+    Безопасная директория для debug-дампов.
+
+    Берётся из env ``PARSER_DEBUG_DIR`` либо системный temp
+    (``<tmp>/megashark_parser_debug``). Никаких относительных путей вида
+    ``backend/...``, чтобы не создавалась вложенная ``backend/backend/``.
+    """
+    configured = os.getenv("PARSER_DEBUG_DIR", "").strip()
+    base = Path(configured) if configured else Path(tempfile.gettempdir()) / "megashark_parser_debug"
+    return base
+
+
+async def _save_parser_debug_dump(page: "Page", prefix: str) -> None:
+    """
+    Сохранить screenshot + усечённый HTML для отладки антибота.
+
+    No-op, если debug-дампы не разрешены (см. ``_parser_debug_dumps_enabled``).
+    Никогда не пишет secrets/cookies/tokens — только публичный HTML страницы,
+    усечённый до 50KB. Исключения подавляются, чтобы отладка не ломала парсинг.
+    """
+    if not _parser_debug_dumps_enabled():
+        return
+
+    try:
+        debug_dir = _parser_debug_dir()
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+        screenshot_path = debug_dir / f"{prefix}_debug_{stamp}.png"
+        await page.screenshot(path=str(screenshot_path), full_page=True)
+
+        html_path = debug_dir / f"{prefix}_debug_{stamp}.html"
+        html_content = await page.content()
+        html_path.write_text(html_content[:50000], encoding="utf-8")
+
+        logger.debug(f"🐞 Debug-дамп парсера сохранён: {debug_dir} (prefix={prefix})")
+    except Exception as exc:  # отладка не должна влиять на основной парсинг
+        logger.debug(f"Не удалось сохранить debug-дамп парсера: {exc}")
 
 
 class MarketplaceParser:
@@ -1312,17 +1373,8 @@ class MarketplaceParser:
                     logger.error(f"🚫 WB обнаружил бота: {page_title}")
                     raise ParserError(f"WB обнаружил автоматизацию: {page_title}")
                 
-                # Делаем скриншот для отладки
-                screenshot_path = f"backend/wb_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-                await page.screenshot(path=screenshot_path, full_page=True)
-                logger.info(f"📸 Скриншот сохранён: {screenshot_path}")
-                
-                # Сохраняем HTML для отладки
-                html_path = f"backend/wb_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-                html_content = await page.content()
-                with open(html_path, 'w', encoding='utf-8') as f:
-                    f.write(html_content[:50000])  # Первые 50KB
-                logger.info(f"📄 HTML сохранён: {html_path}")
+                # Debug-дамп (screenshot + HTML) только в dev при явном opt-in.
+                await _save_parser_debug_dump(page, "wb")
                 
                 # Извлекаем данные через JavaScript (более надёжно)
                 data = await self._extract_wildberries_data_js(page, url)
@@ -2089,17 +2141,8 @@ class MarketplaceParser:
                         logger.error("🚫 Ozon не пропустил (капча)")
                         raise ParserError(f"Ozon требует капчу: {page_title}")
                 
-                # Делаем скриншот для отладки
-                screenshot_path = f"backend/ozon_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-                await page.screenshot(path=screenshot_path, full_page=True)
-                logger.info(f"📸 Скриншот сохранён: {screenshot_path}")
-                
-                # Сохраняем HTML для отладки
-                html_path = f"backend/ozon_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-                html_content = await page.content()
-                with open(html_path, 'w', encoding='utf-8') as f:
-                    f.write(html_content[:50000])
-                logger.info(f"📄 HTML сохранён: {html_path}")
+                # Debug-дамп (screenshot + HTML) только в dev при явном opt-in.
+                await _save_parser_debug_dump(page, "ozon")
                 
                 # Извлекаем данные через JavaScript
                 data = await self._extract_ozon_data_js(page, url)

@@ -90,3 +90,16 @@ tmp/
 temp/
 *.tmp
 *.bak
+
+# ====================
+# Runtime-артефакты backend (не должны попадать в репозиторий)
+# ====================
+backend/celerybeat-schedule
+backend/celerybeat-schedule.*
+# Debug-дампы парсера (скриншоты/HTML), пишутся в рабочую директорию
+backend/wb_debug_*
+backend/ozon_debug_*
+backend/**/wb_debug_*
+backend/**/ozon_debug_*
+# Ошибочно вложенная директория из-за относительного пути парсера
+backend/backend/

@@ -1,6 +1,7 @@
 # 🧪 Полный функциональный QA — MegaSharkAI
 
 - **Дата проверки:** 2026-06-25
+- **Дата закрытия находок:** 2026-06-27 — все MEDIUM/LOW и тех-долг warnings устранены (commit `a008722`); ручной mobile/desktop QA подтверждён пользователем.
 - **Commit (HEAD):** `56b4a44` — "Resolve README merge conflict" (ветка `main`, up to date с `origin/main`)
 - **Окружение QA:** локальный Docker, dev-режим (`ENVIRONMENT=development`, `DEBUG=true`, `is_production=False`)
 - **Хост:** Windows 10, Docker 29.2.1, Docker Compose v5.0.2
@@ -15,7 +16,7 @@
 | Проверка | Результат |
 |---|---|
 | Проект запускается (Docker) | ✅ Да, все 6 контейнеров Up |
-| Backend tests | ✅ **95 passed**, 292 warnings (deprecation) |
+| Backend tests | ✅ **95 passed**, 2 warnings (только сторонние: passlib/crypt, starlette.testclient — было 292) |
 | Frontend `npm run check` | ✅ 0 errors, 0 warnings |
 | Frontend `npm run build` | ✅ Успех (`built in ~17s`) |
 | Миграции (`alembic upgrade head`) | ✅ current == head == `base_schema_bootstrap`, no-op |
@@ -193,7 +194,9 @@ HTTP-статусы (SSR-оболочка, `:3000`) — **все 200**, без b
 
 ## 11. Найденные проблемы
 
-### 🟠 MEDIUM-1 — Парсер безусловно пишет debug-дампы на диск (в т.ч. в production)
+> ✅ **Статус на 2026-06-27: все находки ниже закрыты.** Подробности — в каждом пункте (пометка «РЕШЕНО»).
+
+### 🟠 ✅ MEDIUM-1 [РЕШЕНО] — Парсер безусловно пишет debug-дампы на диск (в т.ч. в production)
 - **Модуль:** Parsing (`backend/app/services/parser.py`)
 - **Где:** WB — строки ~1316–1322; Ozon — ~2093–2099.
 - **Шаги воспроизведения:** запустить парсинг любого товара WB/Ozon.
@@ -206,64 +209,73 @@ HTTP-статусы (SSR-оболочка, `:3000`) — **все 200**, без b
   ```
 - **Последствия:** рост диска без ротации; запись scraped-HTML на диск в production; из-за относительного пути (`backend/...` при cwd `/app`) файлы падают в ошибочно вложенную `backend/backend/` (на хосте уже 8 артефактов).
 - **Severity:** medium (не ломает функциональность, но нежелательный I/O и потенциальная утечка контента в prod).
-- **Минимальный fix (НЕ применён — затрагивает parser, по правилам только через отчёт):** обернуть запись в `if settings.debug:` и/или писать в `tempfile`/выделенный том с ротацией. Пример:
-  ```python
-  if settings.debug:
-      screenshot_path = f"/tmp/wb_debug_{...}.png"
-      await page.screenshot(path=screenshot_path, full_page=True)
-  ```
+- **✅ РЕШЕНО:** запись debug-дампов вынесена в хелпер `_save_parser_debug_dump()` и включается только при `settings.debug=True` **и** явном `PARSER_DEBUG_DUMPS=true`; файлы пишутся в безопасный временный каталог (`/tmp/megashark_parser_debug`). В production по умолчанию ничего не пишется.
 
-### 🟡 LOW-1 — `backend/celerybeat-schedule` отслеживается в git
+### 🟡 ✅ LOW-1 [РЕШЕНО] — `backend/celerybeat-schedule` отслеживается в git
 - Рантайм-артефакт Celery beat (бинарный, меняется каждый запуск) закоммичен → постоянный «грязный» `git status`.
-- **Fix (частично применён):** добавлен в `.gitignore`. Для полного устранения нужно `git rm --cached backend/celerybeat-schedule` (git-операция — оставлено на усмотрение, не выполнял без запроса).
+- **✅ РЕШЕНО:** добавлен в `.gitignore` и убран из трекинга (`git rm --cached`). Файл больше не попадает в коммиты.
 
-### 🟡 LOW-2 — `adapter-auto` не определяет production-окружение
-- `npm run build` выдаёт предупреждение; для prod нужен явный `@sveltejs/adapter-node` или `adapter-static`.
-- Уже описано в `DEPLOYMENT.md`. Установку новых зависимостей не делал (требует разрешения).
+### 🟡 ✅ LOW-2 [РЕШЕНО] — `adapter-auto` не определяет production-окружение
+- `npm run build` выдавал предупреждение; для prod нужен явный адаптер.
+- **✅ РЕШЕНО:** установлен `@sveltejs/adapter-node`, `adapter-auto` удалён; обновлены `svelte.config.js`, `docker-compose.prod.yml` (запуск `node build`, `HOST`/`PORT`) и `DEPLOYMENT.md`.
 
-### 🟡 LOW-3 — Тех-долг `datetime.utcnow()` (292 deprecation warnings)
-- По всему backend используется устаревший `datetime.utcnow()`. Тесты проходят, но рекомендуется миграция на `datetime.now(datetime.UTC)`.
+### 🟡 ✅ LOW-3 [РЕШЕНО] — Тех-долг `datetime.utcnow()` (292 deprecation warnings)
+- По всему backend использовался устаревший `datetime.utcnow()`.
+- **✅ РЕШЕНО:** добавлен хелпер `app/core/datetime_utils.py:utcnow()` (`datetime.now(timezone.utc).replace(tzinfo=None)` — сохраняет наивное UTC-поведение), все вызовы по backend заменены. Предупреждения 292 → 16.
+
+### 🟡 ✅ Тех-долг warnings (Pydantic/FastAPI/Starlette) [РЕШЕНО]
+- **✅ РЕШЕНО (commit `a008722`):**
+  - Pydantic v2: `class Config` → `model_config` (`ConfigDict` в схемах chat/user/marketplace_key и billing; `SettingsConfigDict` в `config.py`).
+  - FastAPI: устаревшие `@app.on_event` startup/shutdown заменены на `lifespan`.
+  - Starlette: `HTTP_422_UNPROCESSABLE_ENTITY` → `HTTP_422_UNPROCESSABLE_CONTENT`.
+  - Итог: предупреждения 16 → 2 (оставшиеся 2 — только сторонние: `passlib`/`crypt`, `starlette.testclient`/httpx).
 
 ---
 
 ## 12. Что исправлено в рамках QA
 
-- ✅ `.gitignore`: добавлены правила для рантайм-артефактов (`celerybeat-schedule`, `wb_debug_*`, `ozon_debug_*`, ошибочная `backend/backend/`). Безопасная housekeeping-правка, логику/данные не затрагивает.
+- ✅ `.gitignore`: добавлены правила для рантайм-артефактов (`celerybeat-schedule`, `wb_debug_*`, `ozon_debug_*`, ошибочная `backend/backend/`).
+- ✅ **MEDIUM-1:** debug-дампы парсера теперь условные (`settings.debug` + `PARSER_DEBUG_DUMPS`), пишутся в `/tmp`.
+- ✅ **LOW-1:** `celerybeat-schedule` убран из git-трекинга.
+- ✅ **LOW-2:** фронтенд переведён на `@sveltejs/adapter-node` для production.
+- ✅ **LOW-3:** `datetime.utcnow()` → хелпер `utcnow()` по всему backend.
+- ✅ **Тех-долг warnings:** Pydantic `ConfigDict`/`SettingsConfigDict`, FastAPI `lifespan`, Starlette `HTTP_422_UNPROCESSABLE_CONTENT`.
+- ✅ **Брендинг:** UI локализован, «Нейроокеан» убран.
+- ✅ Предупреждения тестов: **292 → 2** (оставшиеся — сторонние библиотеки).
 
-Бизнес-логика, auth, billing, schema БД, parser-стратегия, AI-провайдеры — **не менялись** (согласно ограничениям задачи).
+Бизнес-логика, auth, billing, schema БД, AI-провайдеры — **не менялись** по существу (только безопасные технические правки выше).
 
 ---
 
 ## 13. Что осталось / не покрыто автоматически
 
-- **Визуальный mobile/desktop QA в браузере:** проверен на уровне сборки и наличия Tailwind-responsive паттернов; реальную проверку горизонтального скролла/адаптива на узких ширинах нужно сделать вручную в браузере.
-- **WebSocket admin chat / ChatWidget:** backend-тест `test_chat_websocket_auth_and_message_ack` проходит; полный E2E подключения/реконнекта в UI требует ручной проверки.
-- **Реальные внешние интеграции** (YooKassa, AI-провайдеры, прокси) намеренно **не вызывались** (safe mode) — проверены только пути ошибок/gating.
-- **MEDIUM-1 (debug-дампы парсера)** — требует решения по правке parser.py.
+- **Визуальный mobile/desktop QA в браузере:** ✅ подтверждён пользователем 2026-06-27 (HTTP-смоук 15 страниц = 200; «широкие» компоненты обёрнуты в `overflow-x-auto`/grid).
+- **WebSocket admin chat / ChatWidget:** backend-тест `test_chat_websocket_auth_and_message_ack` проходит; полный E2E подключения/реконнекта в UI — рекомендуется при следующем релизе.
+- **Реальные внешние интеграции** (YooKassa, AI-провайдеры, прокси) намеренно **не вызывались** (safe mode) — проверены только пути ошибок/gating. Боевую проверку делать на staging с реальными ключами.
 
 ---
 
 ## 14. Блокеры перед production
 
-Жёстких блокеров нет. Перед prod-деплоем обязательно (из `DEPLOYMENT.md`):
+Жёстких блокеров нет; код-находки закрыты. Перед prod-деплоем остаётся только операционный чеклист (из `DEPLOYMENT.md`):
 1. `ENVIRONMENT=production`, `DEBUG=false`.
 2. Сгенерировать и задать `SECRET_KEY`, `ENCRYPTION_KEY`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD` (иначе `validate_startup_safety()` не даст стартовать — это правильно).
 3. `CORS_ORIGINS` без `*`.
 4. Для чистой БД: предсоздать `alembic_version VARCHAR(128)`, убедиться в доступности pgvector, затем `alembic upgrade head`.
-5. Заменить `adapter-auto` на боевой адаптер фронтенда.
-6. Рекомендуется решить MEDIUM-1 (debug-дампы парсера) до prod.
+5. ✅ Адаптер фронтенда уже боевой (`@sveltejs/adapter-node`).
+6. ✅ MEDIUM-1 (debug-дампы парсера) закрыт.
 
 ---
 
 ## 15. Рекомендации следующего шага
 
-1. **MEDIUM-1:** обернуть запись debug-дампов парсера в `if settings.debug:` и/или вынести в `/tmp` с ротацией.
-2. **LOW-1:** `git rm --cached backend/celerybeat-schedule` (после этого .gitignore удержит файл вне трекинга).
-3. Почистить хостовые артефакты `backend/backend/wb_debug_*` (уже под `.gitignore`).
-4. **LOW-2:** добавить `@sveltejs/adapter-node`/`adapter-static` (с разрешения на установку зависимости).
-5. **LOW-3:** плановая миграция `datetime.utcnow()` → timezone-aware.
+Все находки QA закрыты (см. раздел 11–12). Опциональные дальнейшие шаги:
+
+1. ✅ ~~MEDIUM-1~~ / ~~LOW-1~~ / ~~LOW-2~~ / ~~LOW-3~~ / ~~тех-долг warnings~~ — выполнено.
+2. (Опц.) Убрать 2 оставшихся сторонних warning'а обновлением зависимостей (`passlib`, тест-клиент на `httpx2`) — требует разрешения на установку.
+3. (Опц.) E2E-проверка WebSocket admin-чата и боевых интеграций (YooKassa/AI/прокси) на staging с реальными ключами.
 6. Опционально: ручной mobile-QA ключевых страниц (products-таблица, calendar, admin chat) в браузере.
 
 ---
 
-**Версия отчёта:** 1.0
+**Версия отчёта:** 2.0 (2026-06-27 — все находки закрыты)

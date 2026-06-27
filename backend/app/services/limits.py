@@ -14,6 +14,8 @@ import json
 from datetime import datetime
 from typing import Optional
 
+from app.core.datetime_utils import utcnow
+
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,7 +45,7 @@ METRIC_LABELS: dict[str, str] = {
 
 def _current_period() -> str:
     """Текущий период учёта в формате YYYY-MM."""
-    return datetime.utcnow().strftime("%Y-%m")
+    return utcnow().strftime("%Y-%m")
 
 
 async def get_active_limits(db: AsyncSession, user_id) -> dict:

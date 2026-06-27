@@ -7,8 +7,8 @@ from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
-from datetime import datetime
 
+from app.core.datetime_utils import utcnow
 from app.models.base import BaseModel
 
 
@@ -82,15 +82,15 @@ class MarketplaceKey(BaseModel):
     
     created_at = Column(
         DateTime,
-        default=datetime.utcnow,
+        default=utcnow,
         nullable=False,
         comment="Время создания записи",
     )
     
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utcnow,
+        onupdate=utcnow,
         nullable=False,
         comment="Время последнего обновления",
     )

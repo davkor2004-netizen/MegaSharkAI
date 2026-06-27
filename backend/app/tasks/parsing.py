@@ -17,6 +17,7 @@ from sqlalchemy import select
 
 from app.celery_app import celery_app
 from app.core.database import async_session_maker
+from app.core.datetime_utils import utcnow
 from app.models.product import Product, PriceHistory
 from app.services.parser import MarketplaceParser as PlaywrightMarketplaceParser, ParserError
 
@@ -72,14 +73,14 @@ class MarketplaceParser:
                 for key, value in data.items():
                     if hasattr(product, key):
                         setattr(product, key, value)
-                product.last_parsed_at = datetime.utcnow()
+                product.last_parsed_at = utcnow()
             else:
                 # Создаём новый товар
                 product = Product(
                     **data,
                     marketplace=self.marketplace_name,
                     is_competitor=is_competitor,
-                    last_parsed_at=datetime.utcnow(),
+                    last_parsed_at=utcnow(),
                 )
                 session.add(product)
             
@@ -221,7 +222,7 @@ async def _refresh_competitors() -> dict:
                 product.rating = data.get("rating")
             if data.get("reviews_count") is not None:
                 product.reviews_count = data.get("reviews_count")
-            product.last_parsed_at = datetime.utcnow()
+            product.last_parsed_at = utcnow()
 
             session.add(product)
             session.add(

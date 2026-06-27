@@ -9,6 +9,7 @@ from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
 
+from app.core.datetime_utils import utcnow
 from app.models.chat import ChatConversation, ChatMessage, ChatMessageRole, ChatConversationStatus
 from app.models.user import User
 
@@ -187,7 +188,7 @@ class ChatConversationCRUD:
             if status_value == ChatConversationStatus.CLOSED.value:
                 conversation.is_closed = True
                 conversation.is_active = False
-                conversation.closed_at = datetime.utcnow()
+                conversation.closed_at = utcnow()
             else:
                 conversation.is_closed = False
                 conversation.is_active = True
@@ -213,7 +214,7 @@ class ChatConversationCRUD:
         await db.execute(
             update(ChatConversation)
             .where(ChatConversation.id == conversation_id)
-            .values(last_message_at=datetime.utcnow())
+            .values(last_message_at=utcnow())
         )
         
 
@@ -243,7 +244,7 @@ class ChatMessageCRUD:
         # Обновим время последнего сообщения в конверсации
         conversation = await db.get(ChatConversation, conversation_id)
         if conversation:
-            conversation.last_message_at = datetime.utcnow()
+            conversation.last_message_at = utcnow()
             sender_role_str = sender_role.value if hasattr(sender_role, 'value') else str(sender_role)
             if sender_role_str == ChatMessageRole.USER.value:
                 # Пользователь написал — ждёт ответа поддержки
@@ -295,7 +296,7 @@ class ChatMessageCRUD:
                     ChatMessage.is_read == False,
                 )
             )
-            .values(is_read=True, read_at=datetime.utcnow())
+            .values(is_read=True, read_at=utcnow())
         )
         
         result = await db.execute(stmt)

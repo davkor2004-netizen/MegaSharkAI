@@ -5,11 +5,10 @@
 чтобы enforcement лимитов тарифа был точным и переживал перезапуски.
 """
 
-from datetime import datetime
-
 from sqlalchemy import Column, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
+from app.core.datetime_utils import utcnow
 from app.models.base import BaseModel
 
 
@@ -58,8 +57,8 @@ class UsageCounter(BaseModel):
 
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utcnow,
+        onupdate=utcnow,
         nullable=False,
         comment="Время обновления",
     )

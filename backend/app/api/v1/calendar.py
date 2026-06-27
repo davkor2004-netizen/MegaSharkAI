@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user
 from app.core.database import get_db
+from app.core.datetime_utils import utcnow
 from app.models.notification import SaleCalendar
 from app.models.user import User
 
@@ -231,7 +232,7 @@ async def get_calendar_events(
         f"📅 Запрос событий календаря: user_id={current_user.id}, status={status}, event_type={event_type}, marketplace={marketplace}"
     )
     
-    now = datetime.utcnow()
+    now = utcnow()
     parsed_start = parse_optional_date_filter(start_date, "start_date")
     parsed_end = parse_optional_date_filter(end_date, "end_date")
 
@@ -378,7 +379,7 @@ async def update_calendar_event(
     return {
         "status": "success",
         "message": "Событие обновлено",
-        "event": serialize_event(event, datetime.utcnow(), current_user),
+        "event": serialize_event(event, utcnow(), current_user),
     }
 
 
@@ -420,7 +421,7 @@ async def get_upcoming_events(
     """Получение ближайших событий."""
     logger.info(f"📅 Запрос ближайших событий ({days} дней): user_id={current_user.id}")
 
-    now = datetime.utcnow()
+    now = utcnow()
     future = now + timedelta(days=days)
 
     query = (
@@ -537,7 +538,7 @@ async def export_calendar_ics(
         "METHOD:PUBLISH",
     ]
 
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    timestamp = utcnow().strftime("%Y%m%dT%H%M%SZ")
 
     for event in events:
         if not event.start_date or not event.end_date:

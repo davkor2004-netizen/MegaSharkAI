@@ -8,6 +8,8 @@ from typing import Optional, Dict, List
 from datetime import datetime, timedelta
 from loguru import logger
 
+from app.core.datetime_utils import utcnow
+
 
 class ProxyInfo:
     """Информация об одном прокси."""
@@ -32,7 +34,7 @@ class ProxyInfo:
     def is_available(self) -> bool:
         """Доступен ли прокси для использования."""
         if self.is_blocked:
-            if self.block_until and datetime.utcnow() > self.block_until:
+            if self.block_until and utcnow() > self.block_until:
                 self.is_blocked = False
                 self.block_until = None
                 logger.info(f"🔄 Прокси {self.ip} разблокирован")
@@ -43,7 +45,7 @@ class ProxyInfo:
     def mark_used(self):
         """Отметить прокси как использованный."""
         self.usage_count += 1
-        self.last_used = datetime.utcnow()
+        self.last_used = utcnow()
     
     def mark_error(self):
         """Отметить ошибку использования."""
@@ -59,7 +61,7 @@ class ProxyInfo:
     def block_for(self, minutes: int = 30):
         """Временно заблокировать прокси."""
         self.is_blocked = True
-        self.block_until = datetime.utcnow() + timedelta(minutes=minutes)
+        self.block_until = utcnow() + timedelta(minutes=minutes)
         logger.warning(f"🚫 Прокси {self.ip} заблокирован на {minutes} мин")
     
     def to_dict(self) -> Dict:

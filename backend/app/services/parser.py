@@ -24,6 +24,7 @@ import httpx
 from loguru import logger
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeout, BrowserContext
 from app.config import settings
+from app.core.datetime_utils import utcnow
 from app.services.url_security import marketplace_from_hostname, validate_marketplace_product_url, UrlSecurityError
 
 
@@ -924,7 +925,7 @@ class MarketplaceParser:
                     "brand": None,
                     "category": None,
                     "seller": None,
-                    "parsed_at": datetime.utcnow().isoformat(),
+                    "parsed_at": utcnow().isoformat(),
                 }
 
             # ВАЖНО: публичные JSON-источники WB (card.wb.ru / basket CDN) подключаем
@@ -1158,7 +1159,7 @@ class MarketplaceParser:
                 "brand": await self._extract_text(page, await self._get_selector(marketplace, "brand")),
                 "category": await self._extract_text(page, await self._get_selector(marketplace, "category")),
                 "seller": await self._extract_text(page, await self._get_selector(marketplace, "seller")),
-                "parsed_at": datetime.utcnow().isoformat(),
+                "parsed_at": utcnow().isoformat(),
             }
             
             if data["price"] and data["old_price"] and data["old_price"] > data["price"]:
@@ -2426,7 +2427,7 @@ class MarketplaceParser:
             "category": extracted.get('category'),
             "seller": extracted.get('seller'),
             "discount": discount,
-            "parsed_at": datetime.utcnow().isoformat(),
+            "parsed_at": utcnow().isoformat(),
         }
             
     async def _extract_ozon_data_js(self, page: Page, url: str) -> Dict[str, Any]:
@@ -2562,7 +2563,7 @@ class MarketplaceParser:
             "category": extracted.get('category'),
             "seller": extracted.get('seller'),
             "discount": discount,
-            "parsed_at": datetime.utcnow().isoformat(),
+            "parsed_at": utcnow().isoformat(),
         }
             
     async def _extract_wildberries_data(self, page: Page, url: str) -> Dict[str, Any]:
@@ -2733,7 +2734,7 @@ class MarketplaceParser:
             "category": category,
             "seller": seller,
             "discount": discount,
-            "parsed_at": datetime.utcnow().isoformat(),
+            "parsed_at": utcnow().isoformat(),
         }
             
 

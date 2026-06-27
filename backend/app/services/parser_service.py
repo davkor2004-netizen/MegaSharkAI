@@ -12,6 +12,8 @@ import asyncio
 from typing import Optional, Dict, Any
 from datetime import datetime
 from loguru import logger
+
+from app.core.datetime_utils import utcnow
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeout
 
 
@@ -309,7 +311,7 @@ class MarketplaceParserService:
         """)
         
         from datetime import datetime
-        data['last_parsed_at'] = datetime.utcnow()
+        data['last_parsed_at'] = utcnow()
         
         return data
     

@@ -9,6 +9,8 @@
 from datetime import datetime
 from typing import Optional
 
+from app.core.datetime_utils import utcnow
+
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -89,7 +91,7 @@ async def apply_price_to_marketplace(
 
     # Фиксируем новую цену в БД и сохраняем историю.
     product.price = new_price
-    product.last_parsed_at = datetime.utcnow()
+    product.last_parsed_at = utcnow()
     db.add(product)
     db.add(
         PriceHistory(

@@ -20,6 +20,7 @@ except ImportError:
     EXCEL_AVAILABLE = False
 
 from app.core.database import get_db
+from app.core.datetime_utils import utcnow
 from app.config import settings
 from app.models.product import Product, PriceHistory
 from app.models.user import User
@@ -268,7 +269,7 @@ async def get_product_stats(
         )
 
     period_delta = period_to_delta[normalized_period]
-    now = datetime.utcnow()
+    now = utcnow()
     current_period_start = now - period_delta
     previous_period_start = current_period_start - period_delta
 

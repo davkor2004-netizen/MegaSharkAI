@@ -2,9 +2,9 @@
 Базовые модели и миксины для всех ORM-моделей.
 """
 
-from datetime import datetime
 from sqlalchemy import Column, Integer, DateTime
 from app.core.database import Base
+from app.core.datetime_utils import utcnow
 
 
 class TimestampMixin:
@@ -15,14 +15,14 @@ class TimestampMixin:
     """
     created_at = Column(
         DateTime,
-        default=datetime.utcnow,
+        default=utcnow,
         nullable=False,
         comment="Время создания записи",
     )
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utcnow,
+        onupdate=utcnow,
         nullable=False,
         comment="Время последнего обновления",
     )

@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from app.celery_app import celery_app
 from app.core.database import async_session_maker
+from app.core.datetime_utils import utcnow
 from app.models.notification import SaleCalendar
 from app.models.product import CompetitorAnalysis, Product
 
@@ -34,7 +35,7 @@ async def _sync_sales_calendar() -> dict:
     """Добавить недостающие глобальные события распродаж на текущий и следующий год."""
     from datetime import timedelta
 
-    now = datetime.utcnow()
+    now = utcnow()
     years = [now.year, now.year + 1]
     created = 0
 

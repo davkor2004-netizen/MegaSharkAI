@@ -5,11 +5,10 @@
 публичный ключ и код вставки; на своём сайте показывает AI-ассистента.
 """
 
-from datetime import datetime
-
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
+from app.core.datetime_utils import utcnow
 from app.models.base import BaseModel
 
 
@@ -83,15 +82,15 @@ class WidgetConfig(BaseModel):
 
     created_at = Column(
         DateTime,
-        default=datetime.utcnow,
+        default=utcnow,
         nullable=False,
         comment="Время создания",
     )
 
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utcnow,
+        onupdate=utcnow,
         nullable=False,
         comment="Время обновления",
     )

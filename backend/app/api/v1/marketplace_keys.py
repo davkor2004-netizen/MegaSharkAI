@@ -9,6 +9,7 @@ from loguru import logger
 from datetime import datetime
 
 from app.core.database import get_db
+from app.core.datetime_utils import utcnow
 from app.services.auth_service import get_current_user
 from app.models.user import User
 from app.schemas.marketplace_key import (
@@ -113,7 +114,7 @@ async def create_marketplace_key(
             additional_credentials=additional_credentials,
             is_active=key_data.is_active,
             is_valid=is_valid,
-            last_checked=datetime.utcnow()
+            last_checked=utcnow()
         )
 
         return to_key_response(updated_key)
@@ -142,7 +143,7 @@ async def create_marketplace_key(
             db,
             new_key.id,
             is_valid=is_valid,
-            last_checked=datetime.utcnow()
+            last_checked=utcnow()
         )
         
         return to_key_response(checked_key)
@@ -219,7 +220,7 @@ async def check_marketplace_key(
         db,
         key_id,
         is_valid=is_valid,
-        last_checked=datetime.utcnow()
+        last_checked=utcnow()
     )
     
     return {

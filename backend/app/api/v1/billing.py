@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 import json
 
 from app.core.database import get_db
+from app.core.datetime_utils import utcnow
 from app.models.tariff import Tariff, UserSubscription
 from app.models.user import User
 from app.services.auth_service import get_current_user
@@ -146,7 +147,7 @@ async def get_current_subscription(
         )
     
     # Считаем дни до окончания
-    now = datetime.utcnow()
+    now = utcnow()
     end_date = subscription.trial_ends_at if subscription.is_trial else subscription.expires_at
     days_remaining = (end_date - now).days if end_date else None
     
@@ -208,7 +209,7 @@ async def subscribe(
         )
     
     # Создаём новую подписку с триалом
-    now = datetime.utcnow()
+    now = utcnow()
     trial_end = now + timedelta(days=tariff.trial_days)
     
     subscription = UserSubscription(

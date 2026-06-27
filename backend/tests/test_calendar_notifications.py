@@ -7,6 +7,7 @@ from uuid import UUID
 
 import pytest
 
+from app.core.datetime_utils import utcnow
 from app.models.notification import Notification, SaleCalendar
 
 
@@ -53,8 +54,8 @@ async def test_calendar_delete_foreign_event_returns_not_found(client, db_sessio
         title="Чужая акция",
         marketplace="wildberries",
         event_type="sale",
-        start_date=datetime.utcnow() + timedelta(days=1),
-        end_date=datetime.utcnow() + timedelta(days=2),
+        start_date=utcnow() + timedelta(days=1),
+        end_date=utcnow() + timedelta(days=2),
         is_global=False,
     )
     db_session.add(event)

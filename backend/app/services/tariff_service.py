@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 import json
 
+from app.core.datetime_utils import utcnow
 from app.models.tariff import Tariff, UserSubscription
 from app.models.user import User
 from loguru import logger
@@ -56,7 +57,7 @@ class TariffService:
         trial_days: int = 7,
     ) -> UserSubscription:
         """Создание подписки с пробным периодом."""
-        now = datetime.utcnow()
+        now = utcnow()
         trial_end = now + timedelta(days=trial_days)
         
         subscription = UserSubscription(
@@ -127,7 +128,7 @@ class TariffService:
         if not tariff:
             raise ValueError(f"Тариф {tariff_code} не найден")
         
-        now = datetime.utcnow()
+        now = utcnow()
         
         # Определяем дату окончания
         if billing_cycle == "yearly":

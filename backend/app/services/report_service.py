@@ -10,6 +10,8 @@ import io
 from datetime import datetime
 from typing import Any
 
+from app.core.datetime_utils import utcnow
+
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,7 +37,7 @@ async def build_report_data(db: AsyncSession, user_id) -> dict[str, Any]:
         return round(sum(prices) / len(prices), 2) if prices else 0.0
 
     return {
-        "generated_at": datetime.utcnow(),
+        "generated_at": utcnow(),
         "products": products,
         "own_count": len(own),
         "competitor_count": len(competitors),
@@ -140,7 +142,7 @@ async def generate_competitor_report(
         (содержимое_файла, имя_файла, media_type)
     """
     report = await build_report_data(db, user_id)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
 
     if fmt == "pdf":
         content = generate_pdf(report)

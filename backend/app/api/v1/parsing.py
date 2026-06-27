@@ -12,6 +12,7 @@ from datetime import datetime
 import asyncio
 
 from app.core.database import get_db
+from app.core.datetime_utils import utcnow
 from app.models.product import Product, PriceHistory
 from app.models.user import User
 from app.services.auth_service import get_current_user, get_current_superuser
@@ -219,7 +220,7 @@ async def parse_url(
                 if not data.get('warning'):
                     data['warning'] = 'Актуальные данные WB частично недоступны, использована последняя сохранённая цена.'
         
-        now = datetime.utcnow()
+        now = utcnow()
         
         # Определяем marketplace/external_id для UPSERT.
         # Если выше уже вычислили external_id, используем его.

@@ -13,6 +13,7 @@ from sqlalchemy import select
 from uuid import UUID
 
 from app.config import settings
+from app.core.datetime_utils import utcnow
 from app.models.user import User
 from app.schemas.user import TokenData
 from app.core.database import get_db
@@ -90,9 +91,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode = data.copy()
     
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode.update({"exp": expire, "type": TOKEN_TYPE_ACCESS})
     return _encode_token(to_encode)
@@ -100,7 +101,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 def create_password_reset_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
     """Создать одноразовый JWT только для сброса пароля (не для API)."""
-    expire = datetime.utcnow() + (expires_delta or timedelta(hours=1))
+    expire = utcnow() + (expires_delta or timedelta(hours=1))
     payload = {
         "sub": user_id,
         "exp": expire,
@@ -125,7 +126,7 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
         str: JWT токен
     """
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    expire = utcnow() + (expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
     to_encode.update({"exp": expire, "type": TOKEN_TYPE_REFRESH})
     return _encode_token(to_encode)
 

@@ -3,7 +3,7 @@
 """
 
 from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, Dict, Any, List, Literal
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,8 +38,7 @@ class TariffSchema(BaseModel):
     limits: Dict[str, Any]
     sort_order: int
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserSubscriptionSchema(BaseModel):

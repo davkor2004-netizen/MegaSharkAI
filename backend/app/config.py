@@ -5,7 +5,7 @@
 и предоставляет единый интерфейс для доступа к ним.
 """
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 from urllib.parse import quote
 
@@ -206,11 +206,11 @@ class Settings(BaseSettings):
         if errors:
             raise RuntimeError("Небезопасная production-конфигурация: " + "; ".join(errors))
     
-    class Config:
-        """Конфигурация Pydantic."""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+    )
 
 
 # Глобальный экземпляр настроек

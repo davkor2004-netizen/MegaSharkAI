@@ -85,7 +85,7 @@ async def create_marketplace_key(
     """
     if key_data.marketplace == "ozon" and not key_data.client_id:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Для Ozon Seller API требуется Client-Id",
         )
 

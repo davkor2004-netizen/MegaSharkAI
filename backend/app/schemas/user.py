@@ -2,7 +2,7 @@
 Схемы Pydantic для пользователя.
 """
 
-from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_serializer, field_validator
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -65,8 +65,7 @@ class UserResponse(UserBase):
             return "***"
         return f"{value[:4]}...{value[-4:]}"
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserLogin(BaseModel):

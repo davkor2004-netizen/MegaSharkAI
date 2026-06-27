@@ -2,7 +2,7 @@
 Схемы Pydantic для чата поддержки.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
@@ -38,8 +38,7 @@ class ChatMessageResponse(BaseModel):
     created_at: datetime
     edited_at: Optional[datetime] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChatUserBrief(BaseModel):
@@ -48,8 +47,7 @@ class ChatUserBrief(BaseModel):
     email: str
     full_name: Optional[str] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChatConversationStatusEnum(str, Enum):
@@ -85,8 +83,7 @@ class ChatConversationResponse(ChatConversationBase):
     last_message_at: Optional[datetime] = None
     messages: List[ChatMessageResponse] = []
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChatConversationListResponse(BaseModel):
@@ -101,8 +98,7 @@ class ChatConversationListResponse(BaseModel):
     unread_count: int = 0
     admin_email: Optional[str] = None  # Email админа, если назначен
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChatAdminConversationListResponse(BaseModel):
@@ -120,8 +116,7 @@ class ChatAdminConversationListResponse(BaseModel):
     last_message_preview: Optional[str]
     unread_count: int = 0
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WebSocketMessage(BaseModel):

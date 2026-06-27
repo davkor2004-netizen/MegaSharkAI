@@ -10,15 +10,19 @@ Admin Control Center — read-only эндпоинты для суперполь�
 import asyncio
 import json
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.services import admin_actions_service
+from app.services.admin_actions_service import AdminActionError
 
 from app.config import settings
 from app.core.database import get_db
@@ -589,6 +593,129 @@ async def admin_user_detail(
 
 
 # ====================================================================
+# 2b. Безопасные админские действия (write). Только superuser.
+# Все действия пишут AuditLog. Платежи YooKassa НЕ затрагиваются.
+# ====================================================================
+class AdminReasonRequest(BaseModel):
+    """Базовый запрос с причиной действия (для audit)."""
+
+    reason: str = Field("", max_length=500, description="Причина действия (пишется в audit)")
+
+
+class AdminChangePlanRequest(BaseModel):
+    """Запрос ручной смены тарифа (admin override, без оплаты)."""
+
+    tariff_code: str = Field(..., max_length=50, description="Код тарифа: trial/pro/business/agency/enterprise/manual")
+    reason: str = Field("", max_length=500)
+    period_end: Optional[datetime] = Field(None, description="Окончание платного периода (опционально)")
+    trial_end: Optional[datetime] = Field(None, description="Окончание триала — переводит в статус trial (опционально)")
+
+
+class AdminExtendRequest(BaseModel):
+    """Запрос продления подписки/триала."""
+
+    days: int = Field(..., ge=1, le=365, description="На сколько дней продлить (1..365)")
+    reason: str = Field("", max_length=500)
+
+
+def _handle_action_error(exc: AdminActionError) -> None:
+    """Преобразовать бизнес-ошибку в HTTP-ответ."""
+    raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.post("/users/{user_id}/block")
+async def admin_block_user(
+    user_id: str,
+    body: AdminReasonRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_superuser),
+) -> dict:
+    """Заблокировать пользователя (is_active=False). Пишет audit admin.user.block."""
+    try:
+        return await admin_actions_service.block_user(
+            db, actor=admin, target_user_id=user_id, reason=body.reason, request=request
+        )
+    except AdminActionError as exc:
+        _handle_action_error(exc)
+
+
+@router.post("/users/{user_id}/unblock")
+async def admin_unblock_user(
+    user_id: str,
+    body: AdminReasonRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_superuser),
+) -> dict:
+    """Разблокировать пользователя (is_active=True). Пишет audit admin.user.unblock."""
+    try:
+        return await admin_actions_service.unblock_user(
+            db, actor=admin, target_user_id=user_id, reason=body.reason, request=request
+        )
+    except AdminActionError as exc:
+        _handle_action_error(exc)
+
+
+@router.post("/users/{user_id}/subscription/change-plan")
+async def admin_change_plan(
+    user_id: str,
+    body: AdminChangePlanRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_superuser),
+) -> dict:
+    """Ручная смена тарифа (manual override, без YooKassa). Пишет audit."""
+    try:
+        return await admin_actions_service.change_plan(
+            db,
+            actor=admin,
+            target_user_id=user_id,
+            tariff_code=body.tariff_code,
+            reason=body.reason,
+            period_end=body.period_end,
+            trial_end=body.trial_end,
+            request=request,
+        )
+    except AdminActionError as exc:
+        _handle_action_error(exc)
+
+
+@router.post("/users/{user_id}/subscription/extend")
+async def admin_extend_subscription(
+    user_id: str,
+    body: AdminExtendRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_superuser),
+) -> dict:
+    """Продлить подписку/триал на N дней. Пишет audit admin.subscription.extend."""
+    try:
+        return await admin_actions_service.extend_subscription(
+            db, actor=admin, target_user_id=user_id, days=body.days, reason=body.reason, request=request
+        )
+    except AdminActionError as exc:
+        _handle_action_error(exc)
+
+
+@router.post("/users/{user_id}/subscription/cancel")
+async def admin_cancel_subscription(
+    user_id: str,
+    body: AdminReasonRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_superuser),
+) -> dict:
+    """Отменить подписку вручную (без YooKassa). Пишет audit admin.subscription.cancel."""
+    try:
+        return await admin_actions_service.cancel_subscription(
+            db, actor=admin, target_user_id=user_id, reason=body.reason, request=request
+        )
+    except AdminActionError as exc:
+        _handle_action_error(exc)
+
+
+# ====================================================================
 # 3. Биллинг — подписки
 # ====================================================================
 @router.get("/billing/subscriptions")
@@ -602,7 +729,7 @@ async def admin_billing_subscriptions(
 ) -> dict:
     """Список подписок пользователей. Только чтение, без управляющих действий."""
     base = (
-        select(UserSubscription, User.email, Tariff)
+        select(UserSubscription, User.email, User.id, Tariff)
         .join(User, UserSubscription.user_id == User.id)
         .join(Tariff, UserSubscription.tariff_id == Tariff.id)
     )
@@ -626,13 +753,14 @@ async def admin_billing_subscriptions(
     )
 
     items = []
-    for sub, email, tariff in rows.all():
+    for sub, email, uid, tariff in rows.all():
         if sub.billing_cycle == "yearly":
             price = tariff.price_yearly
         else:
             price = tariff.price_monthly
         items.append(
             {
+                "user_id": str(uid),
                 "user_email": email,
                 "plan": tariff.code,
                 "plan_name": tariff.name,

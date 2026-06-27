@@ -48,6 +48,7 @@ export interface AdminUsersResponse {
 }
 
 export interface AdminSubscriptionRow {
+  user_id: string;
   user_email: string;
   plan: string;
   plan_name: string;
@@ -183,6 +184,24 @@ export interface AdminAuditResponse {
 
 const BASE = '/api/v1/admin';
 
+/** Результат админского действия (write). */
+export interface AdminActionResult {
+  user_id: string;
+  [key: string]: unknown;
+}
+
+function postJson<T>(url: string, body: Record<string, unknown>, fallback: string) {
+  return apiJson<T>(
+    url,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    },
+    fallback
+  );
+}
+
 export const AdminService = {
   overview: () => apiJson<AdminOverview>(`${BASE}/overview`, {}, 'Не удалось загрузить обзор'),
 
@@ -249,5 +268,36 @@ export const AdminService = {
     if (params.offset != null) qs.set('offset', String(params.offset));
     const suffix = qs.toString() ? `?${qs.toString()}` : '';
     return apiJson<AdminAuditResponse>(`${BASE}/audit${suffix}`, {}, 'Не удалось загрузить журнал');
-  }
+  },
+
+  // --- Безопасные админские действия (write) ---
+  blockUser: (userId: string, reason: string) =>
+    postJson<AdminActionResult>(`${BASE}/users/${userId}/block`, { reason }, 'Не удалось заблокировать пользователя'),
+
+  unblockUser: (userId: string, reason: string) =>
+    postJson<AdminActionResult>(`${BASE}/users/${userId}/unblock`, { reason }, 'Не удалось разблокировать пользователя'),
+
+  changePlan: (
+    userId: string,
+    payload: { tariff_code: string; reason: string; period_end?: string; trial_end?: string }
+  ) =>
+    postJson<AdminActionResult>(
+      `${BASE}/users/${userId}/subscription/change-plan`,
+      payload,
+      'Не удалось сменить тариф'
+    ),
+
+  extendSubscription: (userId: string, payload: { days: number; reason: string }) =>
+    postJson<AdminActionResult>(
+      `${BASE}/users/${userId}/subscription/extend`,
+      payload,
+      'Не удалось продлить подписку'
+    ),
+
+  cancelSubscription: (userId: string, reason: string) =>
+    postJson<AdminActionResult>(
+      `${BASE}/users/${userId}/subscription/cancel`,
+      { reason },
+      'Не удалось отменить подписку'
+    )
 };

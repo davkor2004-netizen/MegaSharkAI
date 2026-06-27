@@ -159,7 +159,7 @@ services:
           memory: 256M
 
   # ====================
-  # Frontend SvelteKit (production preview для MVP demo)
+  # Frontend SvelteKit (production Node-сервер через @sveltejs/adapter-node)
   # ====================
   frontend:
     build:
@@ -169,11 +169,14 @@ services:
     restart: always
     environment:
       NODE_ENV: production
+      # adapter-node читает HOST/PORT для запуска боевого сервера (build/index.js).
+      HOST: 0.0.0.0
+      PORT: 3000
     expose:
       - "3000"
     command: >
       sh -c "npm run build &&
-             npm run preview -- --host 0.0.0.0 --port 3000"
+             node build"
     depends_on:
       backend:
         condition: service_healthy

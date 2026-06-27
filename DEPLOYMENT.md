@@ -149,7 +149,7 @@ docker compose -f docker-compose.prod.yml logs -f backend
 
 PostgreSQL и Redis в production compose не публикуются на host. Доступ к ним идёт только внутри Docker network.
 
-Frontend для MVP запускается отдельным service через `npm run build && npm run preview`, а Nginx проксирует его. Для high-load production рекомендуется перейти на явный SvelteKit adapter (`adapter-node` или `adapter-static`) и отдельный build pipeline.
+Frontend собирается через `@sveltejs/adapter-node` и запускается боевым Node-сервером (`npm run build && node build`), а Nginx проксирует его. Сервер слушает `HOST`/`PORT` (по умолчанию `0.0.0.0:3000`). Это полноценный production-режим с SSR (в отличие от dev `vite preview`).
 
 ### 5. Применение миграций
 

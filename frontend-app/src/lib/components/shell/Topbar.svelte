@@ -75,33 +75,41 @@
       <h1 class="truncate text-lg font-semibold text-foreground sm:text-xl">{pageTitle}</h1>
     </div>
 
-    <!-- Search -->
-    <form
-      on:submit={handleSearchSubmit}
-      class="hidden md:flex max-w-xs flex-1 items-center gap-2 rounded-xl border border-border/80 bg-background/40 px-3 py-2 transition-neural focus-within:border-neural-cyan/40 focus-within:ring-2 focus-within:ring-neural-cyan/15"
-      role="search"
-    >
-      <Search class="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <input
-        type="search"
-        bind:value={searchQuery}
-        placeholder="Быстрый поиск товаров..."
-        class="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
-        aria-label="Поиск товаров"
-      />
-    </form>
+    <!-- Search и быстрые действия — инструменты селлера, админу не показываем -->
+    {#if !isSuperuser}
+      <!-- Search -->
+      <form
+        on:submit={handleSearchSubmit}
+        class="hidden md:flex max-w-xs flex-1 items-center gap-2 rounded-xl border border-border/80 bg-background/40 px-3 py-2 transition-neural focus-within:border-neural-cyan/40 focus-within:ring-2 focus-within:ring-neural-cyan/15"
+        role="search"
+      >
+        <Search class="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <input
+          type="search"
+          bind:value={searchQuery}
+          placeholder="Быстрый поиск товаров..."
+          class="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+          aria-label="Поиск товаров"
+        />
+      </form>
 
-    <!-- Quick actions -->
-    <div class="hidden lg:flex items-center gap-1">
-      {#each quickActions as action}
-        <a
-          href={action.href}
-          class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-neural hover:bg-neural-cyan/10 hover:text-neural-cyan"
-        >
-          {action.label}
-        </a>
-      {/each}
-    </div>
+      <!-- Quick actions -->
+      <div class="hidden lg:flex items-center gap-1">
+        {#each quickActions as action}
+          <a
+            href={action.href}
+            class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-neural hover:bg-neural-cyan/10 hover:text-neural-cyan"
+          >
+            {action.label}
+          </a>
+        {/each}
+      </div>
+    {/if}
+
+    {#if isSuperuser}
+      <!-- Заполнитель, чтобы профиль/уведомления оставались справа -->
+      <div class="flex-1"></div>
+    {/if}
 
     <NotificationButton unreadCount={notificationUnreadCount} />
 

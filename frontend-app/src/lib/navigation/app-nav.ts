@@ -47,10 +47,61 @@ export function getNavGroups(): { id: NavSection; label: string; items: AppNavIt
   })).filter((group) => group.items.length > 0);
 }
 
-export const ADMIN_NAV: AppNavItem[] = [
-  { href: '/admin/chat', label: 'Чаты поддержки', match: 'prefix', audience: 'admin' },
-  { href: '/settings', label: 'Настройки AI', match: 'prefix', audience: 'admin' }
+/** Идентификаторы групп админского меню (Admin Control Center). */
+export type AdminNavSection = 'control' | 'monitoring' | 'security' | 'support';
+
+/** Группа админского меню с заголовком и пунктами. */
+export interface AdminNavGroup {
+  id: AdminNavSection;
+  label: string;
+  items: AppNavItem[];
+}
+
+/**
+ * Навигация Admin Control Center (только для superuser).
+ *
+ * Полностью отделена от Seller workspace: обычный селлер этих пунктов не видит,
+ * а админ видит только это меню вместо инструментов кабинета.
+ */
+export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
+  {
+    id: 'control',
+    label: 'Центр управления',
+    items: [
+      { href: '/admin', label: 'Обзор', match: 'exact', audience: 'admin' },
+      { href: '/admin/users', label: 'Пользователи', match: 'prefix', audience: 'admin' },
+      { href: '/admin/billing', label: 'Подписки и платежи', match: 'prefix', audience: 'admin' },
+      { href: '/admin/tariffs', label: 'Тарифы и лимиты', match: 'prefix', audience: 'admin' }
+    ]
+  },
+  {
+    id: 'monitoring',
+    label: 'Мониторинг',
+    items: [
+      { href: '/admin/system', label: 'Система', match: 'prefix', audience: 'admin' },
+      { href: '/admin/parser', label: 'Парсер', match: 'prefix', audience: 'admin' },
+      { href: '/admin/ai', label: 'AI-провайдеры', match: 'prefix', audience: 'admin' }
+    ]
+  },
+  {
+    id: 'security',
+    label: 'Безопасность',
+    items: [
+      { href: '/admin/security', label: 'Безопасность', match: 'prefix', audience: 'admin' },
+      { href: '/admin/audit', label: 'Журнал действий', match: 'prefix', audience: 'admin' }
+    ]
+  },
+  {
+    id: 'support',
+    label: 'Поддержка',
+    items: [{ href: '/admin/chat', label: 'Чаты поддержки', match: 'prefix', audience: 'admin' }]
+  }
 ];
+
+/** Группы админского меню (для Sidebar при isSuperuser). */
+export function getAdminNavGroups(): AdminNavGroup[] {
+  return ADMIN_NAV_GROUPS;
+}
 
 export const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Дашборд',
@@ -69,6 +120,16 @@ export const PAGE_TITLES: Record<string, string> = {
   '/profile': 'Профиль',
   '/settings': 'Настройки',
   '/partners': 'Партнёрство',
+  // Admin Control Center
+  '/admin': 'Центр управления',
+  '/admin/users': 'Пользователи',
+  '/admin/billing': 'Подписки и платежи',
+  '/admin/tariffs': 'Тарифы и лимиты',
+  '/admin/system': 'Система',
+  '/admin/parser': 'Мониторинг парсера',
+  '/admin/ai': 'AI-провайдеры',
+  '/admin/security': 'Безопасность',
+  '/admin/audit': 'Журнал действий',
   '/admin/chat': 'Чаты поддержки'
 };
 

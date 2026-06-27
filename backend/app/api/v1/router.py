@@ -6,7 +6,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import parsing, ai, products, auth, notifications, repricing, calendar, billing, chat, reports, analytics, widget
+from app.api.v1 import parsing, ai, products, auth, notifications, repricing, calendar, billing, chat, reports, analytics, widget, admin
 
 api_router = APIRouter()
 
@@ -23,3 +23,4 @@ api_router.include_router(chat.router, prefix="/chat", tags=["Чат подде�
 api_router.include_router(reports.router, prefix="/reports", tags=["Отчёты"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Аналитика"])
 api_router.include_router(widget.router, prefix="/widget", tags=["Виджет"])
+api_router.include_router(admin.router, prefix="/admin", tags=["Admin Control Center"])

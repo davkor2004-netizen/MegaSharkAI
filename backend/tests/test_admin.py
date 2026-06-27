@@ -209,14 +209,16 @@ async def test_admin_security_and_audit_do_not_crash(client, db_session):
     admin_headers, payload = auth_headers(client, "admin-misc@example.com")
     await make_superuser(db_session, payload["user"]["id"])
 
+    # Audit/Security теперь подключены к реальному хранилищу (см. test_admin_audit_security.py).
     security = client.get("/api/v1/admin/security/events", headers=admin_headers)
     assert security.status_code == 200
-    assert security.json()["available"] is False
+    assert security.json()["available"] is True
+    assert "summary" in security.json()
 
     audit = client.get("/api/v1/admin/audit", headers=admin_headers)
     assert audit.status_code == 200
-    assert audit.json()["available"] is False
-    assert audit.json()["items"] == []
+    assert audit.json()["available"] is True
+    assert isinstance(audit.json()["items"], list)
 
     parser = client.get("/api/v1/admin/parser/status", headers=admin_headers)
     assert parser.status_code == 200

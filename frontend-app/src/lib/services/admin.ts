@@ -119,22 +119,66 @@ export interface AdminAiStatus {
   last_errors: unknown | null;
 }
 
+export interface AdminUserRef {
+  id: string;
+  email: string;
+  full_name: string | null;
+}
+
+export interface AdminSecurityEventRow {
+  id: number;
+  event_type: string;
+  severity: 'info' | 'warning' | 'high' | 'critical';
+  user: AdminUserRef | null;
+  ip: string | null;
+  user_agent: string | null;
+  path: string | null;
+  method: string | null;
+  status_code: number | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
+export interface AdminSecurityRecentFailedLogin {
+  id: number;
+  ip: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
 export interface AdminSecurityEvents {
   available: boolean;
-  note: string;
-  failed_logins: unknown[];
-  suspicious_events: unknown[];
-  recent_401_403_summary: { window: string; count_401: number | null; count_403: number | null };
-  admin_actions_summary: { available: boolean; count: number };
+  note?: string;
+  items: AdminSecurityEventRow[];
+  total: number;
+  summary: { info: number; warning: number; high: number; critical: number };
+  recent_failed_logins: AdminSecurityRecentFailedLogin[];
+  limit: number;
+  offset: number;
+  filters?: Record<string, string | null>;
+}
+
+export interface AdminAuditRow {
+  id: number;
+  action: string;
+  actor: AdminUserRef | null;
+  target: AdminUserRef | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  metadata: Record<string, unknown> | null;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: string | null;
 }
 
 export interface AdminAuditResponse {
   available: boolean;
-  note: string;
-  items: unknown[];
+  note?: string;
+  items: AdminAuditRow[];
   total: number;
   limit: number;
   offset: number;
+  filters?: Record<string, string | null>;
 }
 
 const BASE = '/api/v1/admin';
@@ -176,11 +220,31 @@ export const AdminService = {
 
   aiStatus: () => apiJson<AdminAiStatus>(`${BASE}/ai/status`, {}, 'Не удалось загрузить статус AI'),
 
-  securityEvents: () =>
-    apiJson<AdminSecurityEvents>(`${BASE}/security/events`, {}, 'Не удалось загрузить события'),
-
-  audit: (params: { limit?: number; offset?: number } = {}) => {
+  securityEvents: (
+    params: { severity?: string; event_type?: string; user_id?: string; limit?: number; offset?: number } = {}
+  ) => {
     const qs = new URLSearchParams();
+    if (params.severity) qs.set('severity', params.severity);
+    if (params.event_type) qs.set('event_type', params.event_type);
+    if (params.user_id) qs.set('user_id', params.user_id);
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.offset != null) qs.set('offset', String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return apiJson<AdminSecurityEvents>(
+      `${BASE}/security/events${suffix}`,
+      {},
+      'Не удалось загрузить события'
+    );
+  },
+
+  audit: (
+    params: { action?: string; entity_type?: string; actor?: string; target?: string; limit?: number; offset?: number } = {}
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.action) qs.set('action', params.action);
+    if (params.entity_type) qs.set('entity_type', params.entity_type);
+    if (params.actor) qs.set('actor', params.actor);
+    if (params.target) qs.set('target', params.target);
     if (params.limit != null) qs.set('limit', String(params.limit));
     if (params.offset != null) qs.set('offset', String(params.offset));
     const suffix = qs.toString() ? `?${qs.toString()}` : '';

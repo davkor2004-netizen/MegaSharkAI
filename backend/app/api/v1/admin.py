@@ -8,6 +8,7 @@ Admin Control Center — read-only эндпоинты для суперполь�
 """
 
 import asyncio
+import json
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -16,6 +17,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select, text
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -23,6 +25,7 @@ from app.core.database import get_db
 from app.core.datetime_utils import utcnow
 from app.crud.marketplace_key import marketplace_key_crud
 from app.models.ai_settings import AISettings
+from app.models.audit import AuditLog, SecurityEvent
 from app.models.marketplace_key import MarketplaceKey
 from app.models.product import Product
 from app.models.tariff import Tariff, UserSubscription
@@ -707,29 +710,154 @@ async def admin_system_status(
     }
 
 
-# ====================================================================
-# 6. Безопасность (read-only, честные заглушки пока нет сбора событий)
-# ====================================================================
-@router.get("/security/events")
-async def admin_security_events(_: User = Depends(get_current_superuser)) -> dict:
-    """
-    Сводка событий безопасности.
+def _parse_metadata(raw: Optional[str]) -> Optional[dict]:
+    """Безопасно разобрать JSON-метаданные из БД (уже санитизированные при записи)."""
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return None
 
-    Централизованного сбора событий пока нет, поэтому возвращаем честные пустые
-    структуры с пометкой ``available: false`` — без выдуманных данных.
-    """
+
+def _short_user(user: Optional[User]) -> Optional[dict]:
+    """Минимальное безопасное представление пользователя (без секретов)."""
+    if user is None:
+        return None
     return {
-        "available": False,
-        "note": "Сбор событий безопасности ещё не подключён. Появится в следующем спринте.",
-        "failed_logins": [],
-        "suspicious_events": [],
-        "recent_401_403_summary": {"window": "24h", "count_401": None, "count_403": None},
-        "admin_actions_summary": {"available": False, "count": 0},
+        "id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name,
     }
 
 
 # ====================================================================
-# 7. Журнал действий (audit log ещё не создан — read-only заглушка)
+# 6. Безопасность (real-time события из security_events)
+# ====================================================================
+@router.get("/security/events")
+async def admin_security_events(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    severity: str = Query(""),
+    event_type: str = Query(""),
+    user_id: str = Query(""),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_superuser),
+) -> dict:
+    """
+    Лента и сводка событий безопасности.
+
+    Возвращает события из таблицы ``security_events`` с фильтрами по severity,
+    типу события и пользователю, а также агрегаты по уровням критичности.
+    Секреты не хранятся и не отдаются (метаданные санитизируются при записи).
+    """
+    # --- Сводка по уровням критичности (по всей таблице) ---
+    summary = {"info": 0, "warning": 0, "high": 0, "critical": 0}
+    try:
+        sev_rows = await db.execute(
+            select(SecurityEvent.severity, func.count())
+            .group_by(SecurityEvent.severity)
+        )
+        for sev, count in sev_rows.all():
+            if sev in summary:
+                summary[sev] = int(count or 0)
+    except Exception:
+        # Таблицы может не быть на очень старой БД — отдаём пустую сводку.
+        return {
+            "available": False,
+            "note": "Хранилище событий безопасности недоступно.",
+            "items": [],
+            "total": 0,
+            "summary": summary,
+            "recent_failed_logins": [],
+            "limit": limit,
+            "offset": offset,
+        }
+
+    # --- Базовый запрос с фильтрами ---
+    query = (
+        select(SecurityEvent, User)
+        .outerjoin(User, SecurityEvent.user_id == User.id)
+    )
+    count_query = select(func.count()).select_from(SecurityEvent)
+
+    if severity:
+        query = query.where(SecurityEvent.severity == severity)
+        count_query = count_query.where(SecurityEvent.severity == severity)
+    if event_type:
+        query = query.where(SecurityEvent.event_type == event_type)
+        count_query = count_query.where(SecurityEvent.event_type == event_type)
+    if user_id:
+        try:
+            uid = UUID(user_id)
+            query = query.where(SecurityEvent.user_id == uid)
+            count_query = count_query.where(SecurityEvent.user_id == uid)
+        except ValueError:
+            pass
+
+    total = int((await db.execute(count_query)).scalar() or 0)
+
+    rows = (
+        await db.execute(
+            query.order_by(SecurityEvent.created_at.desc(), SecurityEvent.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+
+    items = []
+    for event, user in rows:
+        items.append({
+            "id": event.id,
+            "event_type": event.event_type,
+            "severity": event.severity,
+            "user": _short_user(user),
+            "ip": event.ip,
+            "user_agent": event.user_agent,
+            "path": event.path,
+            "method": event.method,
+            "status_code": event.status_code,
+            "metadata": _parse_metadata(event.metadata_json),
+            "created_at": event.created_at.isoformat() if event.created_at else None,
+        })
+
+    # --- Недавние неудачные входы (для быстрого триажа) ---
+    failed_rows = (
+        await db.execute(
+            select(SecurityEvent)
+            .where(SecurityEvent.event_type == "login_failed")
+            .order_by(SecurityEvent.created_at.desc(), SecurityEvent.id.desc())
+            .limit(10)
+        )
+    ).scalars().all()
+    recent_failed_logins = [
+        {
+            "id": e.id,
+            "ip": e.ip,
+            "metadata": _parse_metadata(e.metadata_json),
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        }
+        for e in failed_rows
+    ]
+
+    return {
+        "available": True,
+        "items": items,
+        "total": total,
+        "summary": summary,
+        "recent_failed_logins": recent_failed_logins,
+        "limit": limit,
+        "offset": offset,
+        "filters": {
+            "severity": severity or None,
+            "event_type": event_type or None,
+            "user_id": user_id or None,
+        },
+    }
+
+
+# ====================================================================
+# 7. Журнал действий (audit log из таблицы audit_logs)
 # ====================================================================
 @router.get("/audit")
 async def admin_audit(
@@ -738,22 +866,104 @@ async def admin_audit(
     action: str = Query(""),
     actor: str = Query(""),
     target: str = Query(""),
+    entity_type: str = Query(""),
+    db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_superuser),
 ) -> dict:
     """
-    Лента административных действий.
+    Лента административных и значимых действий из таблицы ``audit_logs``.
 
-    Модель audit_log пока не реализована (см. отчёт). Эндпоинт возвращает пустую
-    ленту с ``available: false``, не падает и поддерживает параметры фильтрации.
+    Поддерживает фильтры по действию, инициатору (actor), цели (target) и типу
+    сущности. Метаданные уже санитизированы при записи — секретов не содержат.
     """
+    Actor = aliased(User)
+    Target = aliased(User)
+
+    query = (
+        select(AuditLog, Actor, Target)
+        .outerjoin(Actor, AuditLog.actor_user_id == Actor.id)
+        .outerjoin(Target, AuditLog.target_user_id == Target.id)
+    )
+    count_query = select(func.count()).select_from(AuditLog)
+
+    try:
+        if action:
+            query = query.where(AuditLog.action == action)
+            count_query = count_query.where(AuditLog.action == action)
+        if entity_type:
+            query = query.where(AuditLog.entity_type == entity_type)
+            count_query = count_query.where(AuditLog.entity_type == entity_type)
+        if actor:
+            try:
+                actor_uuid = UUID(actor)
+                query = query.where(AuditLog.actor_user_id == actor_uuid)
+                count_query = count_query.where(AuditLog.actor_user_id == actor_uuid)
+            except ValueError:
+                query = query.where(Actor.email.ilike(f"%{actor}%"))
+                count_query = count_query.where(
+                    AuditLog.actor_user_id.in_(
+                        select(User.id).where(User.email.ilike(f"%{actor}%"))
+                    )
+                )
+        if target:
+            try:
+                target_uuid = UUID(target)
+                query = query.where(AuditLog.target_user_id == target_uuid)
+                count_query = count_query.where(AuditLog.target_user_id == target_uuid)
+            except ValueError:
+                query = query.where(Target.email.ilike(f"%{target}%"))
+                count_query = count_query.where(
+                    AuditLog.target_user_id.in_(
+                        select(User.id).where(User.email.ilike(f"%{target}%"))
+                    )
+                )
+
+        total = int((await db.execute(count_query)).scalar() or 0)
+
+        rows = (
+            await db.execute(
+                query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+        ).all()
+    except Exception:
+        return {
+            "available": False,
+            "note": "Хранилище журнала действий недоступно.",
+            "items": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    items = []
+    for entry, actor_user, target_user in rows:
+        items.append({
+            "id": entry.id,
+            "action": entry.action,
+            "actor": _short_user(actor_user),
+            "target": _short_user(target_user),
+            "entity_type": entry.entity_type,
+            "entity_id": entry.entity_id,
+            "metadata": _parse_metadata(entry.metadata_json),
+            "ip": entry.ip,
+            "user_agent": entry.user_agent,
+            "created_at": entry.created_at.isoformat() if entry.created_at else None,
+        })
+
     return {
-        "available": False,
-        "note": "Журнал действий (audit_log) ещё не создан. Предложена минимальная модель в отчёте.",
-        "items": [],
-        "total": 0,
+        "available": True,
+        "items": items,
+        "total": total,
         "limit": limit,
         "offset": offset,
-        "filters": {"action": action or None, "actor": actor or None, "target": target or None},
+        "filters": {
+            "action": action or None,
+            "actor": actor or None,
+            "target": target or None,
+            "entity_type": entity_type or None,
+        },
     }
 
 

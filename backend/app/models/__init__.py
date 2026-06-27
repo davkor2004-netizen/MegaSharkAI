@@ -9,6 +9,7 @@ from app.models.tariff import Tariff, UserSubscription
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.usage import UsageCounter
 from app.models.widget import WidgetConfig
+from app.models.audit import AuditLog, SecurityEvent
 
 __all__ = [
     "Product",
@@ -26,4 +27,6 @@ __all__ = [
     "ChatMessage",
     "UsageCounter",
     "WidgetConfig",
+    "AuditLog",
+    "SecurityEvent",
 ]

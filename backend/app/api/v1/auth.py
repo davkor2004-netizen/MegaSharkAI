@@ -23,6 +23,7 @@ from app.core.auth_cookies import (
     set_refresh_token_cookie,
     clear_refresh_token_cookie,
     REFRESH_TOKEN_COOKIE_NAME,
+    ACCESS_TOKEN_COOKIE_NAME,
 )
 from app.schemas.validators import validate_password_strength
 from app.models.user import User
@@ -42,6 +43,7 @@ from app.services.auth_service import (
     get_current_superuser,
 )
 from app.services.rate_limit import enforce_auth_rate_limit
+from app.services.audit_service import log_audit_event, log_security_event
 
 
 def _refresh_session_max_age_seconds(remember_me: bool) -> int:
@@ -175,6 +177,16 @@ async def login(
         
         if not user or not verify_password(form_data.password, user.hashed_password):
             logger.warning(f"❌ Неверные данные входа для: {form_data.username}")
+            # Событие безопасности: неудачная попытка входа (пароль НЕ логируется).
+            await log_security_event(
+                db,
+                event_type="login_failed",
+                severity="warning",
+                user_id=user.id if user else None,
+                metadata={"email": form_data.username, "reason": "invalid_credentials"},
+                request=request,
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Неверный email или пароль",
@@ -183,6 +195,15 @@ async def login(
         
         if not user.is_active:
             logger.warning(f"❌ Аккаунт не активен: {form_data.username}")
+            await log_security_event(
+                db,
+                event_type="login_failed",
+                severity="warning",
+                user_id=user.id,
+                metadata={"email": form_data.username, "reason": "account_inactive"},
+                request=request,
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Аккаунт не активен",
@@ -202,6 +223,27 @@ async def login(
         )
 
         logger.info(f"✅ Пользователь вошёл: {user.id}")
+
+        # Успешный вход: фиксируем в журнале безопасности и в audit log.
+        await log_security_event(
+            db,
+            event_type="login_success",
+            severity="info",
+            user_id=user.id,
+            metadata={"remember_me": remember_me},
+            request=request,
+            status_code=status.HTTP_200_OK,
+        )
+        await log_audit_event(
+            db,
+            action="auth.login",
+            actor_user_id=user.id,
+            target_user_id=user.id,
+            entity_type="user",
+            entity_id=user.id,
+            metadata={"remember_me": remember_me},
+            request=request,
+        )
 
         response = JSONResponse(
             content={
@@ -247,31 +289,59 @@ async def refresh_session(
 
     refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE_NAME)
     if not refresh_token:
+        # Нет refresh cookie — это штатная ситуация (первый заход / истёкшая сессия),
+        # не считаем подозрительной попыткой и не засоряем журнал безопасности.
         raise credentials_exception
+
+    async def _log_refresh_failed(reason: str, user_id=None) -> None:
+        """Безопасно зафиксировать неудачную попытку обновления сессии."""
+        await log_security_event(
+            db,
+            event_type="token_refresh_failed",
+            severity="warning",
+            user_id=user_id,
+            metadata={"reason": reason},
+            request=request,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
 
     try:
         payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=[ALGORITHM])
 
         if payload.get("type") != TOKEN_TYPE_REFRESH:
+            await _log_refresh_failed("invalid_token_type")
             raise credentials_exception
 
         token_user_id: str | None = payload.get("sub") or payload.get("user_id")
         if token_user_id is None:
+            await _log_refresh_failed("missing_subject")
             raise credentials_exception
 
         user_uuid = uuid.UUID(token_user_id)
     except (JWTError, ValueError):
+        await _log_refresh_failed("invalid_token")
         raise credentials_exception
 
     result = await db.execute(select(User).filter(User.id == user_uuid))
     user = result.scalar_one_or_none()
 
     if user is None or not user.is_active:
+        await _log_refresh_failed("user_inactive_or_missing", user_id=user_uuid)
         raise credentials_exception
 
     access_token = create_access_token(
         data={"sub": str(user.id), "user_id": str(user.id)},
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+
+    # Успешное обновление сессии (новый access-токен по валидному refresh).
+    await log_security_event(
+        db,
+        event_type="token_refresh",
+        severity="info",
+        user_id=user.id,
+        request=request,
+        status_code=status.HTTP_200_OK,
     )
 
     response = JSONResponse(
@@ -305,8 +375,42 @@ async def get_me(current_user: User = Depends(get_current_user)):
     summary="Выход из системы",
     description="Удаляет HttpOnly cookie с JWT",
 )
-async def logout():
+async def logout(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     """Выход: очищает access и refresh cookie независимо от remember_me."""
+    # Best-effort: достаём user_id из access-cookie только для журналирования.
+    # Невалидный/просроченный токен не мешает выходу — просто логируем без user_id.
+    user_id = None
+    access_cookie = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)
+    if access_cookie:
+        try:
+            payload = jwt.decode(access_cookie, settings.SECRET_KEY, algorithms=[ALGORITHM])
+            raw_id = payload.get("sub") or payload.get("user_id")
+            if raw_id:
+                user_id = uuid.UUID(raw_id)
+        except (JWTError, ValueError):
+            user_id = None
+
+    await log_security_event(
+        db,
+        event_type="logout",
+        severity="info",
+        user_id=user_id,
+        request=request,
+        status_code=status.HTTP_200_OK,
+    )
+    await log_audit_event(
+        db,
+        action="auth.logout",
+        actor_user_id=user_id,
+        target_user_id=user_id,
+        entity_type="user",
+        entity_id=user_id,
+        request=request,
+    )
+
     response = JSONResponse(content={"status": "success", "message": "Вы вышли из системы"})
     clear_access_token_cookie(response)
     clear_refresh_token_cookie(response)

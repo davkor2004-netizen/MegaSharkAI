@@ -50,42 +50,21 @@ def _current_period() -> str:
 
 async def get_active_limits(db: AsyncSession, user_id) -> dict:
     """
-    Получить лимиты активной подписки пользователя.
+    Получить эффективные лимиты и feature-флаги пользователя.
 
-    Возвращает лимиты тарифа, либо DEFAULT_LIMITS, если активной подписки нет.
+    Источник правды — канонический каталог тарифов (app/services/plans.py),
+    резолвинг по коду активной подписки. Без активной подписки применяется
+    бесплатный fallback (Trial): базовые функции доступны, платные — нет.
+
+    Возвращает объединённый словарь {лимиты + feature-флаги}, чтобы legacy-вызовы
+    require_feature/enforce_* продолжали работать через единый источник.
     """
-    subscription = (
-        await db.execute(
-            select(UserSubscription)
-            .where(UserSubscription.user_id == user_id)
-            .where(UserSubscription.status.in_(["trial", "active"]))
-            .order_by(UserSubscription.created_at.desc())
-            .limit(1)
-            # Eager-load тарифа: в async ленивый доступ к relationship вне greenlet
-            # бросает MissingGreenlet (→ 500). Грузим тариф сразу запросом.
-            .options(selectinload(UserSubscription.tariff))
-        )
-    ).scalar_one_or_none()
+    # Локальный импорт, чтобы избежать цикла импорта на старте.
+    from app.services import feature_access, plans
 
-    if not subscription:
-        return dict(DEFAULT_LIMITS)
-
-    # tariff уже загружен через selectinload; fallback через db.get на всякий случай.
-    tariff = subscription.tariff
-    if tariff is None:
-        from app.models.tariff import Tariff
-
-        tariff = await db.get(Tariff, subscription.tariff_id)
-
-    if not tariff or not tariff.limits:
-        return dict(DEFAULT_LIMITS)
-
-    try:
-        limits = json.loads(tariff.limits)
-    except (json.JSONDecodeError, TypeError):
-        return dict(DEFAULT_LIMITS)
-
-    return limits if isinstance(limits, dict) else dict(DEFAULT_LIMITS)
+    code = await feature_access.resolve_plan_code(db, user_id)
+    merged = {**plans.get_plan_limits(code), **plans.get_plan_flags(code)}
+    return merged
 
 
 def _limit_exceeded_error(metric: str, limit_value: int) -> HTTPException:

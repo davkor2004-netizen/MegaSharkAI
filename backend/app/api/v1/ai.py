@@ -20,11 +20,20 @@ from app.core.database import get_db
 from app.models.user import User
 from app.services.auth_service import get_current_user, get_current_superuser
 from app.services.encryption import encryption_service
-from app.services.limits import (
-    enforce_monthly_limit,
-    check_monthly_limit,
-    increment_monthly_usage,
-)
+from app.services import feature_access
+
+
+async def _enforce_ai(db: AsyncSession, user_id, *usage_types: str) -> None:
+    """
+    Проверить все месячные AI-лимиты, затем списать их.
+
+    Сначала проверяем все счётчики (без списания), чтобы при превышении любого
+    лимита не было частичного инкремента, затем увеличиваем каждый.
+    """
+    for usage_type in usage_types:
+        await feature_access.check_usage_limit(db, user_id, usage_type)
+    for usage_type in usage_types:
+        await feature_access.increment_usage(db, user_id, usage_type)
 
 # Каталог для сохранения сгенерированных изображений (совпадает с mount в main.py).
 MEDIA_ROOT = Path(__file__).resolve().parents[3] / "media"
@@ -149,8 +158,8 @@ async def generate_seo_title(
     """
     logger.info(f"🤖 Генерация SEO-названия: user_id={current_user.id}")
 
-    # Проверяем месячный лимит AI-генераций тарифа.
-    await enforce_monthly_limit(db, current_user.id, "ai_generations_per_month")
+    # Лимиты: общий счётчик AI-действий + специализированный счётчик SEO-генераций.
+    await _enforce_ai(db, current_user.id, "ai_actions", "seo_generations")
 
     seo_name = await ai_svc.generate_seo_title(
         product_name=request.product_name,
@@ -197,7 +206,8 @@ async def analyze_competitors(
     """
     logger.info(f"🤖 Анализ конкурентов: user_id={current_user.id}")
 
-    await enforce_monthly_limit(db, current_user.id, "ai_generations_per_month")
+    await feature_access.require_feature(db, current_user.id, "competitor_analysis_access")
+    await _enforce_ai(db, current_user.id, "ai_actions")
 
     analysis = await ai_svc.analyze_competitors(
         product_name=request.product_name,
@@ -246,7 +256,7 @@ async def answer_review(
 ):
     """Сгенерировать ответ на отзыв или вопрос покупателя."""
     logger.info(f"🤖 Ответ на отзыв: user_id={current_user.id}")
-    await enforce_monthly_limit(db, current_user.id, "ai_generations_per_month")
+    await _enforce_ai(db, current_user.id, "ai_actions", "review_replies")
 
     answer = await ai_svc.answer_review(
         product_name=request.product_name,
@@ -273,7 +283,7 @@ async def seo_keywords(
 ):
     """Подобрать и кластеризовать ключевые слова для товара."""
     logger.info(f"🤖 Подбор SEO-ключей: user_id={current_user.id}")
-    await enforce_monthly_limit(db, current_user.id, "ai_generations_per_month")
+    await _enforce_ai(db, current_user.id, "ai_actions", "seo_generations")
 
     return await ai_svc.generate_seo_keywords(
         product_name=request.product_name,
@@ -294,7 +304,8 @@ async def sku_audit(
 ):
     """Провести аудит карточки товара (оценка + рекомендации)."""
     logger.info(f"🤖 SKU-аудит: user_id={current_user.id}")
-    await enforce_monthly_limit(db, current_user.id, "ai_generations_per_month")
+    await feature_access.require_feature(db, current_user.id, "ai_audit_access")
+    await _enforce_ai(db, current_user.id, "ai_actions", "ai_audits")
 
     return await ai_svc.audit_sku(
         product_name=request.product_name,
@@ -331,8 +342,8 @@ async def generate_image(
     """
     logger.info(f"🎨 Генерация изображения: user_id={current_user.id}")
 
-    # Проверяем лимит без списания (списание — только при успехе).
-    await check_monthly_limit(db, current_user.id, "ai_images_per_month", request.n)
+    # Проверяем лимит AI-действий без списания (списание — только при успехе).
+    await feature_access.check_usage_limit(db, current_user.id, "ai_actions", request.n)
 
     result = await ai_svc.generate_image(
         prompt=request.prompt,
@@ -361,8 +372,8 @@ async def generate_image(
     if not urls:
         raise HTTPException(status_code=502, detail="Не удалось сохранить сгенерированные изображения")
 
-    # Списываем лимит по фактически сгенерированным изображениям.
-    await increment_monthly_usage(db, current_user.id, "ai_images_per_month", len(urls))
+    # Списываем лимит AI-действий по фактически сгенерированным изображениям.
+    await feature_access.increment_usage(db, current_user.id, "ai_actions", len(urls))
 
     return {
         "status": "ok",

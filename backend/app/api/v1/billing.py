@@ -16,6 +16,7 @@ from app.core.datetime_utils import utcnow
 from app.models.tariff import Tariff, UserSubscription
 from app.models.user import User
 from app.services.auth_service import get_current_user
+from app.services import feature_access, plans
 from loguru import logger
 
 
@@ -160,6 +161,30 @@ async def get_current_subscription(
         billing_cycle=subscription.billing_cycle,
         days_remaining=days_remaining,
     )
+
+
+@router.get(
+    "/usage",
+    summary="Текущий тариф, лимиты и использование",
+    description="Возвращает текущий план, feature-флаги и потребление лимитов для прогресс-баров биллинга.",
+)
+async def get_usage(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Сводка использования тарифа текущего пользователя.
+
+    Содержит текущий план, лимиты, потребление по основным метрикам
+    (AI-действия, парсинг, товары, экспорт, конкуренты, ключи) и feature-флаги.
+    Используется страницей /billing и для отображения locked-состояний.
+    Секретов не содержит.
+    """
+    summary = await feature_access.get_usage_summary(db, current_user.id)
+    # Добавляем удобную витрину доступных/заблокированных функций для фронтенда.
+    summary["upgrade_url"] = plans.UPGRADE_URL
+    summary["plan_order"] = plans.PLAN_ORDER
+    return summary
 
 
 @router.post(

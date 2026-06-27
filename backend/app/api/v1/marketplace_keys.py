@@ -20,6 +20,7 @@ from app.schemas.marketplace_key import (
 )
 from app.crud.marketplace_key import marketplace_key_crud
 from app.services.marketplace_api import marketplace_api_service
+from app.services import feature_access
 
 
 router = APIRouter(prefix="/marketplace-keys", tags=["Маркетплейсы"])
@@ -121,7 +122,10 @@ async def create_marketplace_key(
     else:
         # Создаём новый ключ
         logger.info(f"Создание ключа для {key_data.marketplace}")
-        
+
+        # Лимит тарифа на количество ключей маркетплейсов.
+        await feature_access.enforce_volume(db, current_user.id, "marketplace_keys")
+
         # Проверяем валидность ключа
         is_valid = await marketplace_api_service.check_api_key(
             key_data.marketplace,

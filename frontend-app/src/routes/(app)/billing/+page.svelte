@@ -23,6 +23,8 @@
     Button,
     Alert
   } from '$lib/components';
+  import { Lock, Gauge } from 'lucide-svelte';
+  import { FEATURE_LABELS, USAGE_LABELS, type UsageSummary } from '$lib/utils/plans';
 
   interface TariffFeatures {
     monitoring?: string[];
@@ -74,8 +76,12 @@
     { key: 'support', label: 'Поддержка', icon: Headphones }
   ];
 
+  // Метрики, которые показываем прогресс-барами на странице биллинга.
+  const usageMetricsOrder = ['ai_actions', 'parsing_requests', 'products', 'exports', 'tracked_competitors'];
+
   let tariffs: Tariff[] = [];
   let subscription: UserSubscription | null = null;
+  let usageSummary: UsageSummary | null = null;
   let loading = true;
   let loadError = '';
   let actionError = '';
@@ -113,6 +119,19 @@
     return Boolean(hasActiveSubscription && subscription?.tariff_code === tariff.code);
   }
 
+  /** Процент использования лимита (0..100); безлимит → 0. */
+  function usagePercent(used: number, limit: number | null, unlimited: boolean): number {
+    if (unlimited || !limit || limit <= 0) return 0;
+    return Math.min(100, Math.round((used / limit) * 100));
+  }
+
+  /** Цвет прогресс-бара по заполненности. */
+  function usageBarClass(percent: number): string {
+    if (percent >= 100) return 'bg-destructive';
+    if (percent >= 80) return 'bg-warning';
+    return 'bg-neural-cyan';
+  }
+
   async function loadPageData(): Promise<void> {
     loading = true;
     loadError = '';
@@ -128,6 +147,17 @@
       loadError = err instanceof Error ? err.message : 'Ошибка загрузки данных';
     } finally {
       loading = false;
+    }
+
+    // Сводка использования загружается отдельно: её сбой не должен ломать всю страницу.
+    try {
+      usageSummary = await apiJson<UsageSummary>(
+        '/api/v1/billing/usage',
+        {},
+        'Не удалось загрузить использование'
+      );
+    } catch {
+      usageSummary = null;
     }
   }
 
@@ -257,6 +287,59 @@
           <Button variant="ghost" size="sm" loading={cancelling} disabled={cancelling} on:click={cancelSubscription}>
             Отменить подписку
           </Button>
+        </div>
+      </GlassCard>
+    {/if}
+
+    {#if usageSummary}
+      <GlassCard padding="lg" className="space-y-5">
+        <div class="flex items-center gap-2">
+          <Gauge class="h-5 w-5 text-neural-cyan" aria-hidden="true" />
+          <h2 class="text-lg font-semibold text-foreground">Использование тарифа</h2>
+          <StatusBadge variant="info" label={usageSummary.plan_name} dot={false} />
+        </div>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          {#each usageMetricsOrder as metric}
+            {@const entry = usageSummary.usage[metric]}
+            {#if entry}
+              {@const percent = usagePercent(entry.used, entry.limit, entry.unlimited)}
+              <div class="space-y-1.5">
+                <div class="flex items-center justify-between text-sm">
+                  <span class="text-foreground">{USAGE_LABELS[metric] ?? entry.label}</span>
+                  <span class="text-muted-foreground">
+                    {entry.used} / {entry.unlimited ? '∞' : entry.limit}
+                  </span>
+                </div>
+                <div class="h-2 w-full overflow-hidden rounded-full bg-muted/40">
+                  <div
+                    class="h-full rounded-full transition-all {usageBarClass(percent)}"
+                    style="width: {entry.unlimited ? 4 : percent}%"
+                  ></div>
+                </div>
+              </div>
+            {/if}
+          {/each}
+        </div>
+
+        <div class="space-y-2 border-t border-border pt-4">
+          <p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Возможности тарифа</p>
+          <div class="flex flex-wrap gap-2">
+            {#each Object.entries(usageSummary.features) as [feature, enabled]}
+              <span
+                class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium {enabled
+                  ? 'border-success/30 bg-success/10 text-success'
+                  : 'border-border bg-muted/40 text-muted-foreground'}"
+              >
+                {#if enabled}
+                  <Check class="h-3 w-3" aria-hidden="true" />
+                {:else}
+                  <Lock class="h-3 w-3" aria-hidden="true" />
+                {/if}
+                {FEATURE_LABELS[feature] ?? feature}
+              </span>
+            {/each}
+          </div>
         </div>
       </GlassCard>
     {/if}

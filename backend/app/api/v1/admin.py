@@ -37,6 +37,7 @@ from app.models.usage import UsageCounter
 from app.models.user import User
 from app.services.auth_service import get_current_superuser
 from app.services.cache_service import cache_service
+from app.services import feature_access, plans
 
 router = APIRouter()
 
@@ -53,137 +54,32 @@ SUPPORTED_MARKETPLACES = [
 ]
 
 # ====================================================================
-# Финальная тарифная сетка (справочная витрина для админки).
-# Это канонический «прайс», независимый от сидов БД. Read-only.
-# Feature-флаги: BUSINESS+ означает BUSINESS и выше, AGENCY+ — AGENCY и выше.
+# Тарифная сетка для админки строится ИЗ КАНОНИЧЕСКОГО источника
+# (app/services/plans.py), чтобы /admin/tariffs, /billing и enforcement
+# никогда не расходились.
 # ====================================================================
-ADMIN_TARIFF_CATALOG = [
-    {
-        "code": "trial",
-        "name": "Trial",
-        "price": 0,
-        "currency": "RUB",
-        "billing_period": "3 дня",
-        "is_public": True,
-        "is_manual_only": False,
-        "limits": {
-            "max_products": 100,
-            "max_repricing_products": 20,
-            "ai_generations_per_month": 10,
-            "competitor_reports": 3,
-            "max_users": 1,
-            "price_update_frequency": 1,
-        },
-        "feature_flags": {
-            "widget_access": False,
-            "auto_repricing_access": False,
-            "white_label_reports_access": False,
-            "team_access": False,
-            "agency_projects_access": False,
-            "priority_queue_access": False,
-        },
-    },
-    {
-        "code": "pro",
-        "name": "PRO",
-        "price": 2990,
-        "currency": "RUB",
-        "billing_period": "месяц",
-        "is_public": True,
-        "is_manual_only": False,
-        "limits": {
-            "max_products": 500,
-            "max_repricing_products": 100,
-            "ai_generations_per_month": 50,
-            "competitor_reports": 10,
-            "max_users": 1,
-            "price_update_frequency": 4,
-        },
-        "feature_flags": {
-            "widget_access": False,
-            "auto_repricing_access": False,
-            "white_label_reports_access": False,
-            "team_access": False,
-            "agency_projects_access": False,
-            "priority_queue_access": False,
-        },
-    },
-    {
-        "code": "business",
-        "name": "BUSINESS",
-        "price": 7990,
-        "currency": "RUB",
-        "billing_period": "месяц",
-        "is_public": True,
-        "is_manual_only": False,
-        "limits": {
-            "max_products": -1,
-            "max_repricing_products": -1,
-            "ai_generations_per_month": -1,
-            "competitor_reports": -1,
-            "max_users": 5,
-            "price_update_frequency": 24,
-        },
-        "feature_flags": {
-            "widget_access": True,
-            "auto_repricing_access": True,
-            "white_label_reports_access": False,
-            "team_access": True,
-            "agency_projects_access": False,
-            "priority_queue_access": True,
-        },
-    },
-    {
-        "code": "agency",
-        "name": "AGENCY",
-        "price": 14990,
-        "currency": "RUB",
-        "billing_period": "месяц",
-        "is_public": True,
-        "is_manual_only": False,
-        "limits": {
-            "max_products": -1,
-            "max_repricing_products": -1,
-            "ai_generations_per_month": -1,
-            "competitor_reports": -1,
-            "max_users": 15,
-            "price_update_frequency": 24,
-        },
-        "feature_flags": {
-            "widget_access": True,
-            "auto_repricing_access": True,
-            "white_label_reports_access": True,
-            "team_access": True,
-            "agency_projects_access": True,
-            "priority_queue_access": True,
-        },
-    },
-    {
-        "code": "enterprise",
-        "name": "ENTERPRISE",
-        "price": None,
-        "currency": "RUB",
-        "billing_period": "индивидуально",
-        "is_public": False,
-        "is_manual_only": True,
-        "limits": {
-            "max_products": -1,
-            "max_repricing_products": -1,
-            "ai_generations_per_month": -1,
-            "competitor_reports": -1,
-            "max_users": -1,
-            "price_update_frequency": 24,
-        },
-        "feature_flags": {
-            "widget_access": True,
-            "auto_repricing_access": True,
-            "white_label_reports_access": True,
-            "team_access": True,
-            "agency_projects_access": True,
-            "priority_queue_access": True,
-        },
-    },
-]
+def _build_admin_tariff_catalog() -> list[dict]:
+    """Сформировать read-only витрину тарифов из канонического каталога."""
+    catalog: list[dict] = []
+    for code in plans.PLAN_ORDER:
+        plan = plans.PLAN_CATALOG[code]
+        catalog.append(
+            {
+                "code": plan["code"],
+                "name": plan["name"],
+                "price": plan["price"],
+                "currency": plan["currency"],
+                "billing_period": plan["billing_period"],
+                "is_public": plan["is_public"],
+                "is_manual_only": plan["is_manual_only"],
+                "limits": dict(plan["limits"]),
+                "feature_flags": dict(plan["feature_flags"]),
+            }
+        )
+    return catalog
+
+
+ADMIN_TARIFF_CATALOG = _build_admin_tariff_catalog()
 
 
 # ====================================================================
@@ -544,6 +440,10 @@ async def admin_user_detail(
     )
     usage = {metric: int(count) for metric, count in usage_rows.all()}
 
+    # Сводка использования по тарифу (current_plan, лимиты, used/limit, feature-флаги).
+    # Использует канонический источник тарифов — без раскрытия секретов.
+    usage_summary = await feature_access.get_usage_summary(db, uid)
+
     # Ключи маркетплейсов — только маскированные
     key_rows = await db.execute(
         select(MarketplaceKey).where(MarketplaceKey.user_id == uid)
@@ -585,6 +485,7 @@ async def admin_user_detail(
         },
         "subscription": subscription,
         "usage": usage,
+        "usage_summary": usage_summary,
         "products_count": products_count,
         "marketplace_keys": keys,
         # Журнал действий/безопасности ещё не подключён (см. /admin/audit).

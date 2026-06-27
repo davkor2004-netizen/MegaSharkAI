@@ -10,6 +10,7 @@ export { default as PageHeader } from './PageHeader.svelte';
 export { default as NeuralGridBackground } from './NeuralGridBackground.svelte';
 export { default as AnimatedBackground } from './AnimatedBackground.svelte';
 export { default as LogoMark } from './LogoMark.svelte';
+export { default as FeatureLocked } from './FeatureLocked.svelte';
 
 /** UI-примитивы (ui/*). */
 export { default as Button } from './ui/Button.svelte';

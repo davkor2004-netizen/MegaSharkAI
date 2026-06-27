@@ -4,13 +4,14 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { Calculator, Package, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-svelte';
-  import { apiJson, apiNoContent } from '$lib/utils/http';
+  import { apiJson, apiNoContent, type LockDetail } from '$lib/utils/http';
   import {
     AIInsightCard,
     Alert,
     Button,
     EmptyState,
     ErrorState,
+    FeatureLocked,
     FormField,
     GlassCard,
     LoadingSkeleton,
@@ -18,6 +19,7 @@
     PageHeader,
     StatusBadge
   } from '$lib/components';
+  import type { UsageSummary } from '$lib/utils/plans';
   import AppPageStyles from '$lib/components/layout/AppPageStyles.svelte';
 
   type StrategyCode = 'aggressive' | 'margin_protection' | 'night' | 'balanced';
@@ -85,6 +87,32 @@
   let statusMessage = '';
   // Отдельная ошибка загрузки списка товаров (критичный для страницы ресурс).
   let productsError = '';
+
+  // Тарифная блокировка страницы: репрайсинг доступен с тарифа Business.
+  let featureLocked = false;
+  let lockDetail: LockDetail | null = null;
+
+  async function checkRepricingAccess(): Promise<void> {
+    try {
+      const usage = await apiJson<UsageSummary>('/api/v1/billing/usage', {}, '');
+      if (!usage.features?.repricing_access) {
+        featureLocked = true;
+        lockDetail = {
+          code: 'FEATURE_LOCKED',
+          message: 'Репрайсинг доступен на тарифе Business и выше.',
+          required_plan: 'business',
+          current_plan: usage.current_plan,
+          limit: null,
+          used: null,
+          reset_at: null,
+          upgrade_url: '/billing'
+        };
+      }
+    } catch {
+      // Если сводка недоступна — не блокируем страницу принудительно.
+      featureLocked = false;
+    }
+  }
   
   const strategies: StrategyItem[] = [
     { value: 'aggressive', label: 'Агрессивный рост', desc: 'Цена ниже всех конкурентов', icon: 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' },
@@ -267,6 +295,8 @@
   }
 
   onMount(async () => {
+    await checkRepricingAccess();
+    if (featureLocked) return;
     await loadStrategySettings();
     await loadProducts();
   });
@@ -307,6 +337,13 @@
     <Alert variant="error" title="Ошибка">{error}</Alert>
   {/if}
 
+  {#if featureLocked}
+    <FeatureLocked
+      detail={lockDetail}
+      title="Репрайсинг доступен на тарифе Business"
+      description="Расчёт и применение оптимальных цен доступны с тарифа Business и выше."
+    />
+  {:else}
   <div class="grid gap-6 xl:grid-cols-12">
     <!-- Настройки и расчёт -->
     <GlassCard glow padding="lg" className="xl:col-span-7">
@@ -535,6 +572,7 @@
       {/if}
     </div>
   </div>
+  {/if}
 </div>
 
 <AppPageStyles />

@@ -25,6 +25,7 @@ from app.config import settings
 from app.models.product import Product, PriceHistory
 from app.models.user import User
 from app.api.v1.auth import get_current_user
+from app.services import feature_access
 
 router = APIRouter()
 
@@ -434,7 +435,10 @@ async def export_products(
 
     if not EXCEL_AVAILABLE:
         raise HTTPException(status_code=500, detail="Библиотека openpyxl не установлена")
-    
+
+    # Лимит тарифа на экспорты в месяц.
+    await feature_access.enforce_usage(db, current_user.id, "exports")
+
     query = select(Product).where(Product.user_id == current_user.id)
     
     # Фильтры
@@ -734,6 +738,13 @@ async def import_products(
                     is_competitor=not normalized_is_own,
                     user_id=current_user.id,
                 )
+            )
+
+        # Лимит тарифа на количество собственных товаров в мониторинге.
+        new_own_count = sum(1 for product in products_to_add if not product.is_competitor)
+        if new_own_count > 0:
+            await feature_access.check_usage_limit(
+                db, current_user.id, "products", amount=new_own_count
             )
 
         if products_to_add:

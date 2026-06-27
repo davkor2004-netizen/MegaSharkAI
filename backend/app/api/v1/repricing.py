@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.notification import UserSettings
 from app.api.v1.auth import get_current_user
 from app.services.repricing_service import apply_price_to_marketplace
+from app.services import feature_access
 
 router = APIRouter()
 
@@ -376,6 +377,9 @@ async def apply_optimal_price(
         f"💸 Применение цены: user_id={current_user.id}, product_id={payload.product_id}, strategy={payload.strategy}"
     )
 
+    # Репрайсинг (отправка цены на маркетплейс) доступен с тарифа BUSINESS.
+    await feature_access.require_feature(db, current_user.id, "repricing_access")
+
     result = await db.execute(
         select(Product).where(
             Product.id == payload.product_id,
@@ -458,6 +462,12 @@ async def save_repricing_strategy(
     logger.info(
         f"⚙️ Сохранение стратегии: user_id={current_user.id}, strategy={payload.strategy}, margin={payload.target_margin}%"
     )
+
+    # Базовая настройка репрайсинга — с тарифа BUSINESS.
+    await feature_access.require_feature(db, current_user.id, "repricing_access")
+    # Автоматический/ночной репрайсинг — отдельный флаг (тоже BUSINESS+).
+    if payload.auto_update_enabled or payload.night_repricing_enabled:
+        await feature_access.require_feature(db, current_user.id, "auto_repricing_access")
 
     settings = await get_or_create_user_settings(db, current_user.id)
     settings.repricing_strategy = payload.strategy

@@ -7,6 +7,22 @@
 import { apiFetch } from '$lib/utils/api';
 import { getAuthHeaders, handleUnauthorized } from '$lib/utils/auth';
 
+/**
+ * Машиночитаемая деталь ошибки доступа по тарифу (HTTP 402).
+ *
+ * Возвращается backend feature-guard сервисом для FEATURE_LOCKED / LIMIT_EXCEEDED.
+ */
+export interface LockDetail {
+  code: 'FEATURE_LOCKED' | 'LIMIT_EXCEEDED' | 'NO_SUBSCRIPTION' | string;
+  message: string;
+  required_plan: string | null;
+  current_plan: string | null;
+  limit: number | null;
+  used: number | null;
+  reset_at: string | null;
+  upgrade_url: string | null;
+}
+
 /** Достаёт читаемое сообщение об ошибке из ответа (detail) или возвращает fallback. */
 export async function extractErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
@@ -15,6 +31,13 @@ export async function extractErrorMessage(response: Response, fallback: string):
       const detail = (payload as Record<string, unknown>).detail;
       if (typeof detail === 'string' && detail.trim()) {
         return detail.trim();
+      }
+      // Структурированная ошибка доступа (402): берём message из detail.
+      if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+        const message = (detail as Record<string, unknown>).message;
+        if (typeof message === 'string' && message.trim()) {
+          return message.trim();
+        }
       }
       // FastAPI может вернуть detail массивом (ошибки валидации).
       if (Array.isArray(detail) && detail.length > 0) {
@@ -30,14 +53,42 @@ export async function extractErrorMessage(response: Response, fallback: string):
   return fallback;
 }
 
-/** Ошибка HTTP-запроса с сохранённым статусом. */
+/** Достаёт структурированную деталь 402 (FEATURE_LOCKED/LIMIT_EXCEEDED), если есть. */
+async function extractLockDetail(response: Response): Promise<LockDetail | undefined> {
+  if (response.status !== 402) return undefined;
+  try {
+    const payload = await response.clone().json();
+    const detail = (payload as Record<string, unknown>)?.detail;
+    if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+      const obj = detail as Record<string, unknown>;
+      if (typeof obj.code === 'string') {
+        return obj as unknown as LockDetail;
+      }
+    }
+  } catch {
+    // Тело не JSON — деталь недоступна.
+  }
+  return undefined;
+}
+
+/** Ошибка HTTP-запроса с сохранённым статусом и (опционально) деталью доступа. */
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  detail?: LockDetail;
+  constructor(message: string, status: number, detail?: LockDetail) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.detail = detail;
   }
+}
+
+/** Вернуть LockDetail, если ошибка — это 402 с тарифной блокировкой. */
+export function getLockDetail(error: unknown): LockDetail | undefined {
+  if (error instanceof ApiError && error.status === 402 && error.detail) {
+    return error.detail;
+  }
+  return undefined;
 }
 
 /**
@@ -60,7 +111,11 @@ export async function apiJson<T = unknown>(
   handleUnauthorized(response);
 
   if (!response.ok) {
-    throw new ApiError(await extractErrorMessage(response, fallbackError), response.status);
+    throw new ApiError(
+      await extractErrorMessage(response, fallbackError),
+      response.status,
+      await extractLockDetail(response)
+    );
   }
 
   return (await response.json()) as T;
@@ -84,7 +139,11 @@ export async function apiBlob(
   handleUnauthorized(response);
 
   if (!response.ok) {
-    throw new ApiError(await extractErrorMessage(response, fallbackError), response.status);
+    throw new ApiError(
+      await extractErrorMessage(response, fallbackError),
+      response.status,
+      await extractLockDetail(response)
+    );
   }
 
   return await response.blob();
@@ -108,6 +167,10 @@ export async function apiNoContent(
   handleUnauthorized(response);
 
   if (!response.ok) {
-    throw new ApiError(await extractErrorMessage(response, fallbackError), response.status);
+    throw new ApiError(
+      await extractErrorMessage(response, fallbackError),
+      response.status,
+      await extractLockDetail(response)
+    );
   }
 }

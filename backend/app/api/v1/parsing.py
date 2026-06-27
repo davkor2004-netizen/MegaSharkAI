@@ -16,7 +16,7 @@ from app.core.datetime_utils import utcnow
 from app.models.product import Product, PriceHistory
 from app.models.user import User
 from app.services.auth_service import get_current_user, get_current_superuser
-from app.services.limits import enforce_volume_limit
+from app.services import feature_access
 from app.services.marketplace_api import marketplace_api_service
 from app.crud.marketplace_key import marketplace_key_crud
 from app.services.parser import ParserError
@@ -82,6 +82,9 @@ async def parse_url(
         # Инициализируем единый экземпляр парсера для всех попыток.
         parser = MarketplaceParser()
         validated_url = parser.validate_product_url(request.url)
+
+        # Лимит тарифа на запросы парсинга в месяц (учитываем валидный запрос).
+        await feature_access.enforce_usage(db, current_user.id, "parsing_requests")
 
         # Для WB и Ozon пробуем с ротацией прокси (до 3 попыток)
         max_attempts = 3
@@ -249,13 +252,9 @@ async def parse_url(
                 setattr(existing_product, field, value)
             product = existing_product
         else:
-            # Enforcement лимита тарифа на количество товаров в мониторинге.
-            current_products_count = await db.scalar(
-                select(func.count(Product.id)).where(Product.user_id == current_user.id)
-            )
-            await enforce_volume_limit(
-                db, current_user.id, "max_products", current_products_count or 0
-            )
+            # Enforcement лимита тарифа на количество товаров/конкурентов.
+            usage_type = "tracked_competitors" if request.is_competitor else "products"
+            await feature_access.enforce_volume(db, current_user.id, usage_type)
 
             product = Product(
                 user_id=current_user.id,
